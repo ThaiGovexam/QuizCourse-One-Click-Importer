@@ -1,0 +1,597 @@
+/**
+ * QuizCourse One-Click Importer
+ * CSS styles for the importer interface
+ */
+
+/* Container styles */
+.qci-container {
+    max-width: 1200px;
+    margin: 20px 0;
+    background: #fff;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+/* Steps navigation */
+.qci-steps {
+    background: #f9f9f9;
+    border-bottom: 1px solid #e5e5e5;
+    padding: 0;
+    margin: 0;
+}
+
+.qci-steps-list {
+    display: flex;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.qci-steps-list li {
+    flex: 1;
+    text-align: center;
+    padding: 15px 10px;
+    position: relative;
+    margin: 0;
+    color: #555;
+    font-weight: 500;
+    cursor: default;
+}
+
+.qci-steps-list li:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 0;
+    width: 20px;
+    height: 1px;
+    background: #ccc;
+    transform: translateY(-50%);
+}
+
+.qci-steps-list li.active {
+    color: #2271b1;
+    font-weight: 600;
+    background-color: #f0f6fc;
+}
+
+.qci-steps-list li.completed {
+    color: #2e7d32;
+}
+
+.qci-steps-list li::before {
+    content: attr(data-step);
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    background: #e5e5e5;
+    color: #555;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.qci-steps-list li.active::before {
+    background: #2271b1;
+    color: #fff;
+}
+
+.qci-steps-list li.completed::before {
+    content: '✓';
+    background: #2e7d32;
+    color: #fff;
+}
+
+/* Content area */
+.qci-content {
+    padding: 20px;
+}
+
+.qci-step-content {
+    margin-bottom: 20px;
+}
+
+.qci-step-content h2 {
+    margin-top: 0;
+    color: #23282d;
+}
+
+/* File upload styles */
+.qci-file-upload {
+    border: 2px dashed #c3c4c7;
+    border-radius: 4px;
+    padding: 30px;
+    text-align: center;
+    margin-bottom: 20px;
+    background: #f9f9f9;
+    transition: all 0.3s ease;
+}
+
+.qci-file-upload.highlight {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+.qci-file-upload.has-file {
+    background: #f0f7f0;
+    border-color: #2e7d32;
+}
+
+.qci-file-upload input[type="file"] {
+    display: none;
+}
+
+.qci-file-upload label {
+    display: block;
+    cursor: pointer;
+    font-size: 16px;
+    color: #2271b1;
+}
+
+.qci-file-upload .dashicons {
+    display: block;
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 10px;
+    color: #555;
+}
+
+.qci-file-upload.highlight .dashicons,
+.qci-file-upload label:hover .dashicons {
+    color: #2271b1;
+}
+
+.qci-file-upload.has-file .dashicons {
+    color: #2e7d32;
+}
+
+.qci-selected-file {
+    background: #f0f7f0;
+    border: 1px solid #c3e6cb;
+    border-radius: 4px;
+    padding: 10px 15px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.qci-selected-file strong {
+    margin-right: 10px;
+}
+
+.qci-selected-file #qci-file-name {
+    flex-grow: 1;
+    word-break: break-all;
+}
+
+.qci-selected-file #qci-remove-file {
+    background: none;
+    border: none;
+    color: #c92a2a;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 10px;
+}
+
+.qci-selected-file #qci-remove-file:hover {
+    color: #a61e1e;
+}
+
+/* Template download section */
+.qci-template {
+    background: #f0f6fc;
+    border: 1px solid #c5d9ed;
+    border-radius: 4px;
+    padding: 15px;
+    margin-top: 30px;
+}
+
+.qci-template h3 {
+    margin-top: 0;
+}
+
+.qci-template .button {
+    display: inline-flex;
+    align-items: center;
+}
+
+.qci-template .dashicons {
+    margin-right: 5px;
+}
+
+/* Field mapping styles */
+.qci-mapping-container {
+    margin-bottom: 30px;
+}
+
+.qci-tabs {
+    margin-top: 20px;
+}
+
+.qci-tabs-nav {
+    display: flex;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-bottom: 1px solid #ddd;
+}
+
+.qci-tabs-nav li {
+    margin: 0 5px 0 0;
+}
+
+.qci-tabs-nav a {
+    display: block;
+    padding: 10px 15px;
+    background: #f1f1f1;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    text-decoration: none;
+    color: #444;
+    font-weight: 500;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+}
+
+.qci-tabs-nav a.active {
+    background: #fff;
+    border-bottom-color: #fff;
+    color: #2271b1;
+}
+
+.qci-tab-content {
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-top: none;
+    background: #fff;
+}
+
+.qci-field-mapping-table {
+    margin-bottom: 20px;
+    overflow-x: auto;
+}
+
+.qci-field-mapping-table table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.qci-field-mapping-table th {
+    background: #f9f9f9;
+    text-align: left;
+}
+
+.qci-field-mapping-table th,
+.qci-field-mapping-table td {
+    padding: 12px 15px;
+    vertical-align: middle;
+}
+
+.qci-field-mapping-table td:first-child {
+    font-weight: 500;
+}
+
+.qci-field-mapping-table select {
+    width: 100%;
+}
+
+.qci-preview-table {
+    margin-top: 20px;
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #e5e5e5;
+}
+
+.qci-preview-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.qci-preview-table th {
+    position: sticky;
+    top: 0;
+    background: #f9f9f9;
+    z-index: 10;
+    box-shadow: 0 1px 0 #ddd;
+}
+
+.qci-preview-table th,
+.qci-preview-table td {
+    padding: 8px 10px;
+    border: 1px solid #e5e5e5;
+    text-align: left;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.qci-preview-table td:hover {
+    white-space: normal;
+    word-break: break-all;
+}
+
+/* Import progress styles */
+.qci-progress {
+    height: 20px;
+    background-color: #e9ecef;
+    border-radius: 10px;
+    margin: 20px 0;
+    overflow: hidden;
+}
+
+.qci-progress-bar {
+    height: 100%;
+    background-color: #2271b1;
+    border-radius: 10px;
+    width: 0;
+    transition: width 0.3s ease;
+}
+
+.qci-progress-bar.error {
+    background-color: #c92a2a;
+}
+
+.qci-import-status {
+    margin-top: 15px;
+    font-size: 14px;
+}
+
+.qci-error {
+    background-color: #ffebee;
+    border: 1px solid #ffcdd2;
+    border-radius: 4px;
+    padding: 15px;
+    margin-top: 15px;
+    color: #c62828;
+}
+
+.qci-error .dashicons {
+    color: #c62828;
+    vertical-align: middle;
+    margin-right: 5px;
+}
+
+/* Import complete styles */
+.qci-complete {
+    text-align: center;
+    padding: 30px 20px;
+}
+
+.qci-complete .dashicons {
+    font-size: 64px;
+    width: 64px;
+    height: 64px;
+    color: #2e7d32;
+    margin-bottom: 15px;
+}
+
+.qci-import-stats {
+    max-width: 400px;
+    margin: 20px auto;
+    text-align: left;
+    background: #f9f9f9;
+    border: 1px solid #e5e5e5;
+    border-radius: 4px;
+    padding: 15px 20px;
+}
+
+.qci-import-stats p {
+    font-weight: 600;
+    margin-top: 0;
+}
+
+.qci-import-stats ul {
+    margin-bottom: 0;
+}
+
+/* Action buttons */
+.qci-actions {
+    margin-top: 20px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.qci-actions.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.qci-actions button {
+    min-width: 120px;
+}
+
+.qci-actions .button-primary {
+    margin-left: auto;
+}
+
+.qci-back-button {
+    margin-right: auto;
+}
+
+/* Loading spinner */
+.qci-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    vertical-align: middle;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-left-color: #2271b1;
+    border-radius: 50%;
+    animation: qci-spin 1s linear infinite;
+}
+
+@keyframes qci-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Responsive styles */
+@media screen and (max-width: 782px) {
+    .qci-steps-list {
+        flex-direction: column;
+    }
+    
+    .qci-steps-list li {
+        text-align: left;
+    }
+    
+    .qci-steps-list li:not(:last-child)::after {
+        display: none;
+    }
+    
+    .qci-actions {
+        flex-direction: column;
+    }
+    
+    .qci-actions button {
+        width: 100%;
+        margin: 5px 0;
+    }
+    
+    .qci-tabs-nav {
+        flex-wrap: wrap;
+    }
+    
+    .qci-tabs-nav li {
+        margin-bottom: 5px;
+    }
+    
+    .qci-field-mapping-table td,
+    .qci-preview-table td {
+        max-width: 100px;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    body.wp-admin.admin-color-modern .qci-container {
+        background: #1e1e1e;
+        border-color: #3c434a;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-steps {
+        background: #2c3338;
+        border-color: #3c434a;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-steps-list li {
+        color: #bbb;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-steps-list li.active {
+        background-color: #2c3338;
+        color: #72aee6;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-steps-list li::before {
+        background: #3c434a;
+        color: #bbb;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-steps-list li.active::before {
+        background: #2271b1;
+        color: #fff;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-content h2,
+    body.wp-admin.admin-color-modern .qci-content h3 {
+        color: #e2e4e7;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-file-upload {
+        border-color: #3c434a;
+        background: #2c3338;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-file-upload.highlight {
+        border-color: #2271b1;
+        background: #1a3b5d;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-file-upload.has-file {
+        background: #133213;
+        border-color: #2e7d32;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-file-upload .dashicons {
+        color: #bbb;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-selected-file {
+        background: #133213;
+        border-color: #2e7d32;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-template {
+        background: #1a3b5d;
+        border-color: #2271b1;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-tabs-nav a {
+        background: #2c3338;
+        border-color: #3c434a;
+        color: #bbb;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-tabs-nav a.active {
+        background: #1e1e1e;
+        border-bottom-color: #1e1e1e;
+        color: #72aee6;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-tab-content {
+        border-color: #3c434a;
+        background: #1e1e1e;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-field-mapping-table th,
+    body.wp-admin.admin-color-modern .qci-preview-table th {
+        background: #2c3338;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-preview-table {
+        border-color: #3c434a;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-preview-table th,
+    body.wp-admin.admin-color-modern .qci-preview-table td {
+        border-color: #3c434a;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-progress {
+        background-color: #3c434a;
+    }
+    
+    body.wp-admin.admin-color-modern .qci-import-stats {
+        background: #2c3338;
+        border-color: #3c434a;
+    }
+}
+
+/* Helper classes */
+.qci-text-center {
+    text-align: center;
+}
+
+.qci-text-right {
+    text-align: right;
+}
+
+.qci-mb-0 {
+    margin-bottom: 0;
+}
+
+.qci-mt-0 {
+    margin-top: 0;
+}
+
+.qci-hidden {
+    display: none;
+}
