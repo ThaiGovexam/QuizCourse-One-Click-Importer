@@ -80,14 +80,15 @@ class QCI_File_Processor {
     private function process_single_sheet_excel($file_path, $mapping) {
         // Make sure PhpSpreadsheet is available
         if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-            // Try to load from composer autoload first
-            $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
-            if (file_exists($autoload_path)) {
-                require_once $autoload_path;
-            } else {
-                // Fallback to bundled library
-                require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
-            }
+    // ลองโหลดจาก composer ก่อน
+    $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
+    if (file_exists($autoload_path)) {
+        require_once $autoload_path;
+    } else {
+        // ถ้าไม่มี ให้โหลดจากไลบรารีที่เราติดตั้งเอง
+        require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
+    }
+}
             
             if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
                 return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer.', 'quizcourse-importer'));
@@ -326,15 +327,16 @@ class QCI_File_Processor {
      */
     private function process_excel($file_path, $mapping) {
         // Make sure PhpSpreadsheet is available
-        if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-            // Try to load from composer autoload first
-            $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
-            if (file_exists($autoload_path)) {
-                require_once $autoload_path;
-            } else {
-                // Fallback to bundled library
-                require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
-            }
+      if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+    // ลองโหลดจาก composer ก่อน
+    $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
+    if (file_exists($autoload_path)) {
+        require_once $autoload_path;
+    } else {
+        // ถ้าไม่มี ให้โหลดจากไลบรารีที่เราติดตั้งเอง
+        require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
+    }
+}
             
             if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
                 return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer.', 'quizcourse-importer'));
@@ -1091,15 +1093,16 @@ class QCI_File_Processor {
      */
     private function analyze_excel($file_path) {
         // Make sure PhpSpreadsheet is available
-        if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-            // Try to load from composer autoload first
-            $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
-            if (file_exists($autoload_path)) {
-                require_once $autoload_path;
-            } else {
-                // Fallback to bundled library
-                require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
-            }
+       if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+    // ลองโหลดจาก composer ก่อน
+    $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
+    if (file_exists($autoload_path)) {
+        require_once $autoload_path;
+    } else {
+        // ถ้าไม่มี ให้โหลดจากไลบรารีที่เราติดตั้งเอง
+        require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
+    }
+}
             
             if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
                 return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer.', 'quizcourse-importer'));
