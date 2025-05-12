@@ -80,18 +80,33 @@ class QCI_File_Processor {
     private function process_single_sheet_excel($file_path, $mapping) {
         // Make sure PhpSpreadsheet is available
         if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-    // ลองโหลดจาก composer ก่อน
-    $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
-    if (file_exists($autoload_path)) {
-        require_once $autoload_path;
-    } else {
-        // ถ้าไม่มี ให้โหลดจากไลบรารีที่เราติดตั้งเอง
-        require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
-    }
-}
+            // Try to load from composer autoload first
+            $autoload_paths = array(
+                // Plugin's vendor directory
+                QCI_PLUGIN_DIR . 'vendor/autoload.php',
+                // WordPress root vendor directory
+                ABSPATH . 'vendor/autoload.php',
+                // Parent directory vendor
+                dirname(QCI_PLUGIN_DIR) . '/vendor/autoload.php'
+            );
             
-            if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-                return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer.', 'quizcourse-importer'));
+            $loaded = false;
+            foreach ($autoload_paths as $autoload_path) {
+                if (file_exists($autoload_path)) {
+                    require_once $autoload_path;
+                    $loaded = true;
+                    break;
+                }
+            }
+            
+            // Fallback to bundled library if exists
+            if (!$loaded && file_exists(QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php')) {
+                require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
+                $loaded = true;
+            }
+            
+            if (!$loaded || !class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+                return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer or install the library using Composer.', 'quizcourse-importer'));
             }
         }
         
@@ -118,7 +133,7 @@ class QCI_File_Processor {
             }
             
             // Check for parent_reference column for relationships
-            $parent_column_index = $this->find_column_index($headers, array('parent_reference', 'parent_id', 'parent'));
+            $parent_column_index = $this->find_column_index($headers, array('parent_id', 'parent_reference', 'parent'));
             
             // Process each row
             foreach ($rows as $row) {
@@ -218,7 +233,7 @@ class QCI_File_Processor {
         }
         
         // Check for parent_reference column for relationships
-        $parent_column_index = $this->find_column_index($headers, array('parent_reference', 'parent_id', 'parent'));
+        $parent_column_index = $this->find_column_index($headers, array('parent_id', 'parent_reference', 'parent'));
         
         // Process each row
         while (($row = fgetcsv($handle)) !== false) {
@@ -327,19 +342,34 @@ class QCI_File_Processor {
      */
     private function process_excel($file_path, $mapping) {
         // Make sure PhpSpreadsheet is available
-      if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-    // ลองโหลดจาก composer ก่อน
-    $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
-    if (file_exists($autoload_path)) {
-        require_once $autoload_path;
-    } else {
-        // ถ้าไม่มี ให้โหลดจากไลบรารีที่เราติดตั้งเอง
-        require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
-    }
-}
+        if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+            // Try to load from multiple possible locations
+            $autoload_paths = array(
+                // Plugin's vendor directory
+                QCI_PLUGIN_DIR . 'vendor/autoload.php',
+                // WordPress root vendor directory
+                ABSPATH . 'vendor/autoload.php',
+                // Parent directory vendor
+                dirname(QCI_PLUGIN_DIR) . '/vendor/autoload.php'
+            );
             
-            if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-                return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer.', 'quizcourse-importer'));
+            $loaded = false;
+            foreach ($autoload_paths as $autoload_path) {
+                if (file_exists($autoload_path)) {
+                    require_once $autoload_path;
+                    $loaded = true;
+                    break;
+                }
+            }
+            
+            // Fallback to bundled library if exists
+            if (!$loaded && file_exists(QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php')) {
+                require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
+                $loaded = true;
+            }
+            
+            if (!$loaded || !class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+                return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer or install the library using Composer.', 'quizcourse-importer'));
             }
         }
         
@@ -769,624 +799,749 @@ class QCI_File_Processor {
                 }
                 
                 if (!$quiz_found) {
-                    // Log warning
-                    QCI_Logger::log(
-                        sprintf(
-                            __('Question "%s" references quiz "%s" which was not found in the import data.', 'quizcourse-importer'),
-                            isset($question['question']) ? substr($question['question'], 0, 30) . '...' : $index,
-                            $question['quiz_reference']
-                        ),
-                        'warning'
-                    );
-                }
-            }
-        }
-        
-        // Link answers to questions
-        foreach ($data['answers'] as $index => $answer) {
-            $data['answers'][$index]['temp_id'] = 'answer_' . ($index + 1);
-            
-            // Link to question if question_reference exists
-            if (!empty($answer['question_reference'])) {
-                $question_found = false;
-                foreach ($data['questions'] as $question_index => $question) {
-                    // Use ID if available, otherwise check by question text
-                    $question_id = !empty($question['id']) ? $question['id'] : '';
-                    $question_text = !empty($question['question']) ? $question['question'] : '';
-                    
-                    if ($question_id == $answer['question_reference'] || $question_text == $answer['question_reference']) {
-                        $data['answers'][$index]['question_temp_id'] = $data['questions'][$question_index]['temp_id'];
-                        $question_found = true;
-                        break;
-                    }
-                }
-                
-                if (!$question_found) {
-                    // Log warning
-                    QCI_Logger::log(
-                        sprintf(
-                            __('Answer "%s" references question "%s" which was not found in the import data.', 'quizcourse-importer'),
-                            isset($answer['answer']) ? substr($answer['answer'], 0, 30) . '...' : $index,
-                            $answer['question_reference']
-                        ),
-                        'warning'
-                    );
-                }
-            }
-        }
-        
-        return $data;
-    }
+                   // Log warning
+                   QCI_Logger::log(
+                       sprintf(
+                           __('Question "%s" references quiz "%s" which was not found in the import data.', 'quizcourse-importer'),
+                           isset($question['question']) ? substr($question['question'], 0, 30) . '...' : $index,
+                           $question['quiz_reference']
+                       ),
+                       'warning'
+                   );
+               }
+           }
+       }
+       
+       // Link answers to questions
+       foreach ($data['answers'] as $index => $answer) {
+           $data['answers'][$index]['temp_id'] = 'answer_' . ($index + 1);
+           
+           // Link to question if question_reference exists
+           if (!empty($answer['question_reference'])) {
+               $question_found = false;
+               foreach ($data['questions'] as $question_index => $question) {
+                   // Use ID if available, otherwise check by question text
+                   $question_id = !empty($question['id']) ? $question['id'] : '';
+                   $question_text = !empty($question['question']) ? $question['question'] : '';
+                   
+                   if ($question_id == $answer['question_reference'] || $question_text == $answer['question_reference']) {
+                       $data['answers'][$index]['question_temp_id'] = $data['questions'][$question_index]['temp_id'];
+                       $question_found = true;
+                       break;
+                   }
+               }
+               
+               if (!$question_found) {
+                   // Log warning
+                   QCI_Logger::log(
+                       sprintf(
+                           __('Answer "%s" references question "%s" which was not found in the import data.', 'quizcourse-importer'),
+                           isset($answer['answer']) ? substr($answer['answer'], 0, 30) . '...' : $index,
+                           $answer['question_reference']
+                       ),
+                       'warning'
+                   );
+               }
+           }
+       }
+       
+       return $data;
+   }
 
-    /**
-     * Analyze the file and determine its structure.
-     * This is used for the initial validation and to help with field mapping.
-     * 
-     * @param string $file_path Path to the uploaded file.
-     * @param bool $single_sheet Whether to analyze as a single sheet.
-     * @return array|WP_Error File structure information or error.
-     */
-    public function analyze_file($file_path, $single_sheet = true) {
-        // Get file extension
-        $file_ext = pathinfo($file_path, PATHINFO_EXTENSION);
-        
-        try {
-            if ($file_ext === 'csv') {
-                return $single_sheet ? $this->analyze_single_sheet_csv($file_path) : $this->analyze_csv($file_path);
-            } else if (in_array($file_ext, array('xlsx', 'xls'))) {
-                return $single_sheet ? $this->analyze_single_sheet_excel($file_path) : $this->analyze_excel($file_path);
-            } else {
-                return new WP_Error('invalid_file_type', __('Unsupported file type. Please upload a CSV or Excel file.', 'quizcourse-importer'));
-            }
-        } catch (Exception $e) {
-            QCI_Logger::log('File analysis error: ' . $e->getMessage(), 'error');
-            return new WP_Error('file_analysis_error', $e->getMessage());
-        }
-    }
+   /**
+    * Analyze the file and determine its structure.
+    * This is used for the initial validation and to help with field mapping.
+    * 
+    * @param string $file_path Path to the uploaded file.
+    * @param bool $single_sheet Whether to analyze as a single sheet.
+    * @return array|WP_Error File structure information or error.
+    */
+   public function analyze_file($file_path, $single_sheet = true) {
+       // Get file extension
+       $file_ext = pathinfo($file_path, PATHINFO_EXTENSION);
+       
+       try {
+           if ($file_ext === 'csv') {
+               return $single_sheet ? $this->analyze_single_sheet_csv($file_path) : $this->analyze_csv($file_path);
+           } else if (in_array($file_ext, array('xlsx', 'xls'))) {
+               return $single_sheet ? $this->analyze_single_sheet_excel($file_path) : $this->analyze_excel($file_path);
+           } else {
+               return new WP_Error('invalid_file_type', __('Unsupported file type. Please upload a CSV or Excel file.', 'quizcourse-importer'));
+           }
+       } catch (Exception $e) {
+           QCI_Logger::log('File analysis error: ' . $e->getMessage(), 'error');
+           return new WP_Error('file_analysis_error', $e->getMessage());
+       }
+   }
 
-    /**
-     * Analyze structure of a single sheet CSV file.
-     * 
-     * @param string $file_path Path to the CSV file.
-     * @return array|WP_Error CSV structure information.
-     */
-    private function analyze_single_sheet_csv($file_path) {
-        // Open the CSV file
-        $handle = fopen($file_path, 'r');
-        if ($handle === false) {
-            return new WP_Error('file_error', __('Failed to open the CSV file.', 'quizcourse-importer'));
-        }
+   /**
+    * Analyze structure of a single sheet CSV file.
+    * 
+    * @param string $file_path Path to the CSV file.
+    * @return array|WP_Error CSV structure information.
+    */
+   private function analyze_single_sheet_csv($file_path) {
+       // Open the CSV file
+       $handle = fopen($file_path, 'r');
+       if ($handle === false) {
+           return new WP_Error('file_error', __('Failed to open the CSV file.', 'quizcourse-importer'));
+       }
 
-        // Read the first row to get headers
-        $headers = fgetcsv($handle);
-        if ($headers === false) {
-            fclose($handle);
-            return new WP_Error('csv_error', __('The CSV file is empty or has an invalid format.', 'quizcourse-importer'));
-        }
+       // Read the first row to get headers
+       $headers = fgetcsv($handle);
+       if ($headers === false) {
+           fclose($handle);
+           return new WP_Error('csv_error', __('The CSV file is empty or has an invalid format.', 'quizcourse-importer'));
+       }
 
-        // Check for record_type column
-        $type_column_index = $this->find_column_index($headers, array('record_type', 'type', 'entity_type'));
-        if ($type_column_index === false) {
-            fclose($handle);
-            return new WP_Error('missing_type_column', __('Missing required column: "record_type" or "type" or "entity_type". This column is needed to identify the type of each row.', 'quizcourse-importer'));
-        }
+       // Check for record_type column
+       $type_column_index = $this->find_column_index($headers, array('record_type', 'type', 'entity_type'));
+       if ($type_column_index === false) {
+           fclose($handle);
+           return new WP_Error('missing_type_column', __('Missing required column: "record_type" or "type" or "entity_type". This column is needed to identify the type of each row.', 'quizcourse-importer'));
+       }
 
-        // Read rows to determine types and create structure
-        $record_types = array();
-        $preview_data = array();
-        $row_count = 0;
-        $max_preview = 5; // Maximum number of rows for preview
+       // Read rows to determine types and create structure
+       $record_types = array();
+       $preview_data = array();
+       $row_count = 0;
+       $max_preview = 5; // Maximum number of rows for preview
 
-        while (($row = fgetcsv($handle)) !== false && $row_count < 50) { // Check first 50 rows
-            if (count(array_filter($row)) === 0) {
-                continue; // Skip empty rows
-            }
-            
-            if (!isset($row[$type_column_index])) {
-                continue; // Skip if no type
-            }
-            
-            $record_type = strtolower(trim($row[$type_column_index]));
-            $record_type = $this->normalize_record_type($record_type);
-            
-            if (!in_array($record_type, array_keys($this->record_types))) {
-                continue; // Skip if invalid type
-            }
-            
-            // Count types
-            if (!isset($record_types[$record_type])) {
-                $record_types[$record_type] = 0;
-            }
-            $record_types[$record_type]++;
-            
-            // Collect preview data
-            if (count($preview_data) < $max_preview) {
-                $row_data = array();
-                foreach ($headers as $i => $header) {
-                    if (isset($row[$i])) {
-                        $row_data[$header] = $row[$i];
-                    } else {
-                        $row_data[$header] = '';
-                    }
-                }
-                $preview_data[] = $row_data;
-            }
-            
-            $row_count++;
-        }
+       while (($row = fgetcsv($handle)) !== false && $row_count < 50) { // Check first 50 rows
+           if (count(array_filter($row)) === 0) {
+               continue; // Skip empty rows
+           }
+           
+           if (!isset($row[$type_column_index])) {
+               continue; // Skip if no type
+           }
+           
+           $record_type = strtolower(trim($row[$type_column_index]));
+           $record_type = $this->normalize_record_type($record_type);
+           
+           if (!in_array($record_type, array_keys($this->record_types))) {
+               continue; // Skip if invalid type
+           }
+           
+           // Count types
+           if (!isset($record_types[$record_type])) {
+               $record_types[$record_type] = 0;
+           }
+           $record_types[$record_type]++;
+           
+           // Collect preview data
+           if (count($preview_data) < $max_preview) {
+               $row_data = array();
+               foreach ($headers as $i => $header) {
+                   if (isset($row[$i])) {
+                       $row_data[$header] = $row[$i];
+                   } else {
+                       $row_data[$header] = '';
+                   }
+               }
+               $preview_data[] = $row_data;
+           }
+           
+           $row_count++;
+       }
 
-        fclose($handle);
+       fclose($handle);
 
-        // Return structure information
-        return array(
-            'file_type' => 'single_sheet_csv',
-            'headers' => $headers,
-            'record_types' => $record_types,
-            'total_rows' => $row_count,
-            'preview_data' => $preview_data
-        );
-    }
+       // Return structure information
+       return array(
+           'file_type' => 'single_sheet_csv',
+           'headers' => $headers,
+           'record_types' => $record_types,
+           'total_rows' => $row_count,
+           'preview_data' => $preview_data
+       );
+   }
 
-    /**
-     * Analyze structure of a single sheet Excel file.
-     * 
-     * @param string $file_path Path to the Excel file.
-     * @return array|WP_Error Excel structure information.
-     */
-    private function analyze_single_sheet_excel($file_path) {
-        // Make sure PhpSpreadsheet is available
-        if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-            // Try to load from composer autoload first
-            $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
-            if (file_exists($autoload_path)) {
-                require_once $autoload_path;
-            } else {
-                // Fallback to bundled library
-                require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
-            }
-            
-            if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-                return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer.', 'quizcourse-importer'));
-            }
-        }
-        
-        try {
-            // Create a reader based on file extension
-            $file_ext = pathinfo($file_path, PATHINFO_EXTENSION);
-            if ($file_ext === 'xlsx') {
-                $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
-            } else {
-                $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xls();
-            }
-            
-            // Set reader to read only to improve performance
-            $reader->setReadDataOnly(true);
-            
-            // Load the spreadsheet
-            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file_path);
-            $sheet = $spreadsheet->getActiveSheet();
-            
-            // Get the first row as headers
-            $rows = $sheet->toArray();
-            if (empty($rows)) {
-                return new WP_Error('empty_file', __('The Excel file appears to be empty.', 'quizcourse-importer'));
-            }
-            
-            $headers = array_shift($rows);
-            
-            // Check for record_type column
-            $type_column_index = $this->find_column_index($headers, array('record_type', 'type', 'entity_type'));
-            if ($type_column_index === false) {
-                return new WP_Error('missing_type_column', __('Missing required column: "record_type" or "type" or "entity_type". This column is needed to identify the type of each row.', 'quizcourse-importer'));
-            }
-            
-            // Analyze rows to determine types and create structure
-            $record_types = array();
-            $preview_data = array();
-            $row_count = 0;
-            $max_preview = 5; // Maximum number of rows for preview
-            
-            foreach ($rows as $row) {
-                if ($this->is_empty_row($row)) {
-                    continue;
-                }
-                
-                if (!isset($row[$type_column_index])) {
-                    continue; // Skip if no type
-                }
-                
-                $record_type = strtolower(trim($row[$type_column_index]));
-                $record_type = $this->normalize_record_type($record_type);
-                
-                if (!in_array($record_type, array_keys($this->record_types))) {
-                    continue; // Skip if invalid type
-                }
-                
-                // Count types
-                if (!isset($record_types[$record_type])) {
-                    $record_types[$record_type] = 0;
-                }
-                $record_types[$record_type]++;
-                
-                // Collect preview data
-                if (count($preview_data) < $max_preview) {
-                    $row_data = array();
-                    foreach ($headers as $i => $header) {
-                        if (isset($row[$i])) {
-                            $row_data[$header] = $row[$i];
-                        } else {
-                            $row_data[$header] = '';
-                        }
-                    }
-                    $preview_data[] = $row_data;
-                }
-                
-                $row_count++;
-                
-                if ($row_count >= 50) { // Only check first 50 rows
-                    break;
-                }
-            }
-            
-            // Return structure information
-            return array(
-                'file_type' => 'single_sheet_excel',
-                'headers' => $headers,
-                'record_types' => $record_types,
-                'total_rows' => count($rows),
-                'preview_data' => $preview_data
-            );
-            
-        } catch (Exception $e) {
-            return new WP_Error('excel_error', __('Error processing Excel file: ', 'quizcourse-importer') . $e->getMessage());
-        }
-    }
-
-    /**
-     * Analyze CSV file structure.
-     * 
-     * @param string $file_path Path to the CSV file.
-     * @return array CSV structure information.
-     */
-    private function analyze_csv($file_path) {
-        // Get CSV data
-        $csv_data = $this->read_csv($file_path);
-        if (is_wp_error($csv_data)) {
-            return $csv_data;
-        }
-        
-        // Analyze structure
-        $structure = array();
-        
-        foreach ($csv_data as $sheet_name => $rows) {
-            if (empty($rows)) continue;
-            
-            // Get available fields from the first row (headers)
-            $fields = array_keys($rows[0]);
-            
-            // Determine sheet type
-            $sheet_key = $this->get_sheet_key($sheet_name);
-            if (!$sheet_key) {
-                // Try to guess the sheet type based on field names
-                $sheet_key = $this->guess_sheet_type($fields);
-            }
-            
-            $structure[$sheet_key ?: $sheet_name] = array(
-                'name' => $sheet_name,
-                'fields' => $fields,
-                'row_count' => count($rows),
-                'detected_type' => $sheet_key ?: 'unknown'
-            );
-        }
-        
-        return array(
-            'file_type' => 'csv',
-            'sheets' => $structure
-        );
-    }
-
-    /**
-     * Analyze Excel file structure.
-     * 
-     * @param string $file_path Path to the Excel file.
-     * @return array Excel structure information.
-     */
-    private function analyze_excel($file_path) {
-        // Make sure PhpSpreadsheet is available
+   /**
+    * Analyze structure of a single sheet Excel file.
+    * 
+    * @param string $file_path Path to the Excel file.
+    * @return array|WP_Error Excel structure information.
+    */
+   private function analyze_single_sheet_excel($file_path) {
+       // Make sure PhpSpreadsheet is available
        if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-    // ลองโหลดจาก composer ก่อน
-    $autoload_path = QCI_PLUGIN_DIR . 'vendor/autoload.php';
-    if (file_exists($autoload_path)) {
-        require_once $autoload_path;
-    } else {
-        // ถ้าไม่มี ให้โหลดจากไลบรารีที่เราติดตั้งเอง
-        require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
-    }
-}
-            
-            if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
-                return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer.', 'quizcourse-importer'));
-            }
-        }
-        
-        // Load spreadsheet
-        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file_path);
-        
-        // Analyze structure
-        $structure = array();
-        
-        foreach ($spreadsheet->getAllSheets() as $sheet) {
-            $sheet_name = $sheet->getTitle();
-            
-            // Get the first row as headers
-            $highest_column = $sheet->getHighestDataColumn(1);
-            $headers = $sheet->rangeToArray('A1:' . $highest_column . '1', null, true, false)[0];
-            
-            // Filter out empty headers
-            $headers = array_filter($headers, function($value) {
-                return !empty($value);
-            });
-            
-            // Count rows
-            $highest_row = $sheet->getHighestDataRow();
-            $row_count = $highest_row > 1 ? $highest_row - 1 : 0; // Subtract header row
-            
-            // Determine sheet type
-            $sheet_key = $this->get_sheet_key($sheet_name);
-            if (!$sheet_key) {
-                // Try to guess the sheet type based on field names
-                $sheet_key = $this->guess_sheet_type($headers);
-            }
-            
-            $structure[$sheet_key ?: $sheet_name] = array(
-                'name' => $sheet_name,
-                'fields' => $headers,
-                'row_count' => $row_count,
-                'detected_type' => $sheet_key ?: 'unknown'
-            );
-        }
-        
-        return array(
-            'file_type' => 'excel',
-            'sheets' => $structure
-        );
-    }
+           // Try to load from multiple possible locations
+           $autoload_paths = array(
+               // Plugin's vendor directory
+               QCI_PLUGIN_DIR . 'vendor/autoload.php',
+               // WordPress root vendor directory
+               ABSPATH . 'vendor/autoload.php',
+               // Parent directory vendor
+               dirname(QCI_PLUGIN_DIR) . '/vendor/autoload.php'
+           );
+           
+           $loaded = false;
+           foreach ($autoload_paths as $autoload_path) {
+               if (file_exists($autoload_path)) {
+                   require_once $autoload_path;
+                   $loaded = true;
+                   break;
+               }
+           }
+           
+           // Fallback to bundled library if exists
+           if (!$loaded && file_exists(QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php')) {
+               require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
+               $loaded = true;
+           }
+           
+           if (!$loaded || !class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+               return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer or install the library using Composer.', 'quizcourse-importer'));
+           }
+       }
+       
+       try {
+           // Create a reader based on file extension
+           $file_ext = pathinfo($file_path, PATHINFO_EXTENSION);
+           if ($file_ext === 'xlsx') {
+               $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
+           } else {
+               $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xls();
+           }
+           
+           // Set reader to read only to improve performance
+           $reader->setReadDataOnly(true);
+           
+           // Load the spreadsheet
+           $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file_path);
+           $sheet = $spreadsheet->getActiveSheet();
+           
+           // Get the first row as headers
+           $rows = $sheet->toArray();
+           if (empty($rows)) {
+               return new WP_Error('empty_file', __('The Excel file appears to be empty.', 'quizcourse-importer'));
+           }
+           
+           $headers = array_shift($rows);
+           
+           // Check for record_type column
+           $type_column_index = $this->find_column_index($headers, array('record_type', 'type', 'entity_type'));
+           if ($type_column_index === false) {
+               return new WP_Error('missing_type_column', __('Missing required column: "record_type" or "type" or "entity_type". This column is needed to identify the type of each row.', 'quizcourse-importer'));
+           }
+           
+           // Analyze rows to determine types and create structure
+           $record_types = array();
+           $preview_data = array();
+           $row_count = 0;
+           $max_preview = 5; // Maximum number of rows for preview
+           
+           foreach ($rows as $row) {
+               if ($this->is_empty_row($row)) {
+                   continue;
+               }
+               
+               if (!isset($row[$type_column_index])) {
+                   continue; // Skip if no type
+               }
+               
+               $record_type = strtolower(trim($row[$type_column_index]));
+               $record_type = $this->normalize_record_type($record_type);
+               
+               if (!in_array($record_type, array_keys($this->record_types))) {
+                   continue; // Skip if invalid type
+               }
+               
+               // Count types
+               if (!isset($record_types[$record_type])) {
+                   $record_types[$record_type] = 0;
+               }
+               $record_types[$record_type]++;
+               
+               // Collect preview data
+               if (count($preview_data) < $max_preview) {
+                   $row_data = array();
+                   foreach ($headers as $i => $header) {
+                       if (isset($row[$i])) {
+                           $row_data[$header] = $row[$i];
+                       } else {
+                           $row_data[$header] = '';
+                       }
+                   }
+                   $preview_data[] = $row_data;
+               }
+               
+               $row_count++;
+               
+               if ($row_count >= 50) { // Only check first 50 rows
+                   break;
+               }
+           }
+           
+           // Return structure information
+           return array(
+               'file_type' => 'single_sheet_excel',
+               'headers' => $headers,
+               'record_types' => $record_types,
+               'total_rows' => count($rows),
+               'preview_data' => $preview_data
+           );
+           
+       } catch (Exception $e) {
+           return new WP_Error('excel_error', __('Error processing Excel file: ', 'quizcourse-importer') . $e->getMessage());
+       }
+   }
 
-    /**
-     * Guess the sheet type based on field names.
-     * 
-     * @param array $fields Available fields in the sheet.
-     * @return string|bool Guessed sheet type or false if can't determine.
-     */
-    private function guess_sheet_type($fields) {
-        // Typical field patterns for each sheet type
-        $patterns = array(
-            'course' => array('course', 'title', 'description'),
-            'quiz' => array('quiz', 'question_ids', 'title'),
-            'question' => array('question', 'type', 'quiz_id'),
-            'answer' => array('answer', 'correct', 'question_id')
-        );
-        
-        $scores = array();
-        
-        // Convert fields to lowercase for comparison
-        $lowercase_fields = array_map('strtolower', $fields);
-        
-        foreach ($patterns as $type => $pattern_fields) {
-            $scores[$type] = 0;
-            
-            foreach ($pattern_fields as $pattern_field) {
-                foreach ($lowercase_fields as $field) {
-                    if (strpos($field, $pattern_field) !== false) {
-                        $scores[$type]++;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Get type with highest score
-        arsort($scores);
-        $top_type = key($scores);
-        
-        // Only return a type if the score is at least 2
-        return $scores[$top_type] >= 2 ? $top_type : false;
-    }
+   /**
+    * Analyze CSV file structure.
+    * 
+    * @param string $file_path Path to the CSV file.
+    * @return array CSV structure information.
+    */
+   private function analyze_csv($file_path) {
+       // Get CSV data
+       $csv_data = $this->read_csv($file_path);
+       if (is_wp_error($csv_data)) {
+           return $csv_data;
+       }
+       
+       // Analyze structure
+       $structure = array();
+       
+       foreach ($csv_data as $sheet_name => $rows) {
+           if (empty($rows)) continue;
+           
+           // Get available fields from the first row (headers)
+           $fields = array_keys($rows[0]);
+           
+           // Determine sheet type
+           $sheet_key = $this->get_sheet_key($sheet_name);
+           if (!$sheet_key) {
+               // Try to guess the sheet type based on field names
+               $sheet_key = $this->guess_sheet_type($fields);
+           }
+           
+           $structure[$sheet_key ?: $sheet_name] = array(
+               'name' => $sheet_name,
+               'fields' => $fields,
+               'row_count' => count($rows),
+               'detected_type' => $sheet_key ?: 'unknown'
+           );
+       }
+       
+       return array(
+           'file_type' => 'csv',
+           'sheets' => $structure
+       );
+   }
 
-    /**
-     * Get database field options for mapping.
-     * These are specific to the wp_aysquiz and wp_foxlms tables.
-     * 
-     * @return array Database field options.
-     */
-    public function get_db_field_options() {
-        return array(
-            'courses' => array(
-                'title' => __('Title', 'quizcourse-importer'),
-                'description' => __('Description', 'quizcourse-importer'),
-                'image' => __('Image URL', 'quizcourse-importer'),
-                'category_ids' => __('Category IDs', 'quizcourse-importer'),
-                'section_ids' => __('Section IDs', 'quizcourse-importer'),
-                'lesson_ids' => __('Lesson IDs', 'quizcourse-importer'),
-                'question_ids' => __('Question IDs', 'quizcourse-importer'),
-                'status' => __('Status', 'quizcourse-importer'),
-                'date_created' => __('Date Created', 'quizcourse-importer'),
-                'ordering' => __('Ordering', 'quizcourse-importer'),
-                'author_id' => __('Author ID', 'quizcourse-importer'),
-                'options' => __('Options (JSON)', 'quizcourse-importer')
-            ),
-            'quizzes' => array(
-                'title' => __('Title', 'quizcourse-importer'),
-                'description' => __('Description', 'quizcourse-importer'),
-                'quiz_image' => __('Image URL', 'quizcourse-importer'),
-                'quiz_category_id' => __('Category ID', 'quizcourse-importer'),
-                'question_ids' => __('Question IDs', 'quizcourse-importer'),
-                'published' => __('Published', 'quizcourse-importer'),
-                'author_id' => __('Author ID', 'quizcourse-importer'),
-                'create_date' => __('Creation Date', 'quizcourse-importer'),
-                'ordering' => __('Ordering', 'quizcourse-importer'),
-                'course_reference' => __('Course Reference', 'quizcourse-importer'),
-                'options' => __('Options (JSON)', 'quizcourse-importer')
-            ),
-            'questions' => array(
-                'question' => __('Question Text', 'quizcourse-importer'),
-                'question_title' => __('Question Title', 'quizcourse-importer'),
-                'question_image' => __('Image URL', 'quizcourse-importer'),
-                'type' => __('Question Type', 'quizcourse-importer'),
-                'category_id' => __('Category ID', 'quizcourse-importer'),
-                'tag_id' => __('Tag ID', 'quizcourse-importer'),
-                'quiz_reference' => __('Quiz Reference', 'quizcourse-importer'),
-                'wrong_answer_text' => __('Wrong Answer Text', 'quizcourse-importer'),
-                'right_answer_text' => __('Right Answer Text', 'quizcourse-importer'),
-                'question_hint' => __('Hint', 'quizcourse-importer'),
-                'explanation' => __('Explanation', 'quizcourse-importer'),
-                'published' => __('Published', 'quizcourse-importer'),
-                'weight' => __('Weight', 'quizcourse-importer'),
-                'create_date' => __('Creation Date', 'quizcourse-importer'),
-                'options' => __('Options (JSON)', 'quizcourse-importer')
-            ),
-            'answers' => array(
-                'answer' => __('Answer Text', 'quizcourse-importer'),
-                'image' => __('Image URL', 'quizcourse-importer'),
-                'correct' => __('Is Correct', 'quizcourse-importer'),
-                'question_reference' => __('Question Reference', 'quizcourse-importer'),
-                'weight' => __('Weight', 'quizcourse-importer'),
-                'ordering' => __('Ordering', 'quizcourse-importer'),
-                'keyword' => __('Keyword', 'quizcourse-importer'),
-                'options' => __('Options (JSON)', 'quizcourse-importer')
-            )
-        );
-    }
+   /**
+    * Analyze Excel file structure.
+    * 
+    * @param string $file_path Path to the Excel file.
+    * @return array Excel structure information.
+    */
+   private function analyze_excel($file_path) {
+       // Make sure PhpSpreadsheet is available
+       if (!class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+           // Try to load from multiple possible locations
+           $autoload_paths = array(
+               // Plugin's vendor directory
+               QCI_PLUGIN_DIR . 'vendor/autoload.php',
+               // WordPress root vendor directory
+               ABSPATH . 'vendor/autoload.php',
+               // Parent directory vendor
+               dirname(QCI_PLUGIN_DIR) . '/vendor/autoload.php'
+           );
+           
+           $loaded = false;
+           foreach ($autoload_paths as $autoload_path) {
+               if (file_exists($autoload_path)) {
+                   require_once $autoload_path;
+                   $loaded = true;
+                   break;
+               }
+           }
+           
+           // Fallback to bundled library if exists
+           if (!$loaded && file_exists(QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php')) {
+               require_once QCI_PLUGIN_DIR . 'libraries/PhpSpreadsheet/vendor/autoload.php';
+               $loaded = true;
+           }
+           
+           if (!$loaded || !class_exists('PhpOffice\PhpSpreadsheet\IOFactory')) {
+               return new WP_Error('missing_dependency', __('PhpSpreadsheet library is missing. Please contact the plugin developer or install the library using Composer.', 'quizcourse-importer'));
+           }
+       }
+       
+       // Load spreadsheet
+       $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file_path);
+       
+       // Analyze structure
+       $structure = array();
+       
+       foreach ($spreadsheet->getAllSheets() as $sheet) {
+           $sheet_name = $sheet->getTitle();
+           
+           // Get the first row as headers
+           $highest_column = $sheet->getHighestDataColumn(1);
+           $headers = $sheet->rangeToArray('A1:' . $highest_column . '1', null, true, false)[0];
+           
+           // Filter out empty headers
+           $headers = array_filter($headers, function($value) {
+               return !empty($value);
+           });
+           
+           // Count rows
+           $highest_row = $sheet->getHighestDataRow();
+           $row_count = $highest_row > 1 ? $highest_row - 1 : 0; // Subtract header row
+           
+           // Determine sheet type
+           $sheet_key = $this->get_sheet_key($sheet_name);
+           if (!$sheet_key) {
+               // Try to guess the sheet type based on field names
+               $sheet_key = $this->guess_sheet_type($headers);
+           }
+           
+           $structure[$sheet_key ?: $sheet_name] = array(
+               'name' => $sheet_name,
+               'fields' => $headers,
+               'row_count' => $row_count,
+               'detected_type' => $sheet_key ?: 'unknown'
+           );
+       }
+       
+       return array(
+           'file_type' => 'excel',
+           'sheets' => $structure
+       );
+   }
 
-    /**
-     * Create a mapping suggestion based on file analysis.
-     * 
-     * @param array $file_structure File structure information.
-     * @param bool $single_sheet Whether this is a single sheet file.
-     * @return array Suggested mapping.
-     */
-    public function suggest_mapping($file_structure, $single_sheet = true) {
-        $mapping = array();
-        $db_fields = $this->get_db_field_options();
-        
-        if ($single_sheet) {
-            // For single sheet, create mapping for all headers
-            if (isset($file_structure['headers']) && is_array($file_structure['headers'])) {
-                foreach ($file_structure['headers'] as $header) {
-                    $mapping[$header] = $this->suggest_field_mapping($header);
-                }
-            }
-        } else {
-            // For multi-sheet, create mapping per sheet
-            if (isset($file_structure['sheets']) && is_array($file_structure['sheets'])) {
-                foreach ($file_structure['sheets'] as $sheet_key => $sheet_info) {
-                    $sheet_type = $sheet_info['detected_type'];
-                    
-                    // Skip if the sheet type is not recognized
-                    if ($sheet_type === 'unknown' || !isset($db_fields[$sheet_type])) {
-                        continue;
-                    }
-                    
-                    $mapping[$sheet_type] = array();
-                    
-                    // Try to match file fields with database fields
-                    foreach ($sheet_info['fields'] as $file_field) {
-                        $mapping[$sheet_type][$file_field] = $this->suggest_field_mapping($file_field, $sheet_type);
-                    }
-                }
-            }
-        }
-        
-        return $mapping;
-    }
+   /**
+    * Guess the sheet type based on field names.
+    * 
+    * @param array $fields Available fields in the sheet.
+    * @return string|bool Guessed sheet type or false if can't determine.
+    */
+   private function guess_sheet_type($fields) {
+       // Typical field patterns for each sheet type
+       $patterns = array(
+           'course' => array('course', 'title', 'description'),
+           'quiz' => array('quiz', 'question_ids', 'title'),
+           'question' => array('question', 'type', 'quiz_id'),
+           'answer' => array('answer', 'correct', 'question_id')
+       );
+       
+       $scores = array();
+       
+       // Convert fields to lowercase for comparison
+       $lowercase_fields = array_map('strtolower', $fields);
+       
+       foreach ($patterns as $type => $pattern_fields) {
+           $scores[$type] = 0;
+           
+           foreach ($pattern_fields as $pattern_field) {
+               foreach ($lowercase_fields as $field) {
+                   if (strpos($field, $pattern_field) !== false) {
+                       $scores[$type]++;
+                       break;
+                   }
+               }
+           }
+       }
+       
+       // Get type with highest score
+       arsort($scores);
+       $top_type = key($scores);
+       
+       // Only return a type if the score is at least 2
+       return $scores[$top_type] >= 2 ? $top_type : false;
+   }
 
-    /**
-     * Suggest a field mapping for a given file field.
-     * 
-     * @param string $file_field The file field name.
-     * @param string $entity_type Optional entity type for context.
-     * @return string Suggested database field.
-     */
-    private function suggest_field_mapping($file_field, $entity_type = null) {
-        $file_field_lower = strtolower($file_field);
-        $db_fields = $this->get_db_field_options();
-        
-        // Skip record_type and similar fields
-        if (in_array($file_field_lower, array('record_type', 'type', 'entity_type'))) {
-            return '';
-        }
-        
-        // Skip ID fields that are only for reference
-        if ($file_field_lower === 'id' || $file_field_lower === 'record_id') {
-            return '';
-        }
-        
-        // If we know the entity type, check only those fields
-        if ($entity_type && isset($db_fields[$entity_type])) {
-            foreach ($db_fields[$entity_type] as $db_field => $label) {
-                if ($this->is_field_match($file_field, $db_field)) {
-                    return $db_field;
-                }
-            }
-        } else {
-            // Check all entity types
-            foreach ($db_fields as $type => $fields) {
-                foreach ($fields as $db_field => $label) {
-                    if ($this->is_field_match($file_field, $db_field)) {
-                        return $db_field;
-                    }
-                }
-            }
-        }
-        
-        return '';
-    }
+   /**
+    * Get database field options for mapping.
+    * These are specific to the wp_aysquiz and wp_foxlms tables.
+    * 
+    * @return array Database field options.
+    */
+   public function get_db_field_options() {
+       return array(
+           'courses' => array(
+               'title' => __('Title', 'quizcourse-importer'),
+               'description' => __('Description', 'quizcourse-importer'),
+               'image' => __('Image URL', 'quizcourse-importer'),
+               'category_ids' => __('Category IDs', 'quizcourse-importer'),
+               'section_ids' => __('Section IDs', 'quizcourse-importer'),
+               'lesson_ids' => __('Lesson IDs', 'quizcourse-importer'),
+               'question_ids' => __('Question IDs', 'quizcourse-importer'),
+               'status' => __('Status', 'quizcourse-importer'),
+               'date_created' => __('Date Created', 'quizcourse-importer'),
+               'ordering' => __('Ordering', 'quizcourse-importer'),
+               'author_id' => __('Author ID', 'quizcourse-importer'),
+               'options' => __('Options (JSON)', 'quizcourse-importer')
+           ),
+           'quizzes' => array(
+               'title' => __('Title', 'quizcourse-importer'),
+               'description' => __('Description', 'quizcourse-importer'),
+               'quiz_image' => __('Image URL', 'quizcourse-importer'),
+               'quiz_category_id' => __('Category ID', 'quizcourse-importer'),
+               'question_ids' => __('Question IDs', 'quizcourse-importer'),
+               'published' => __('Published', 'quizcourse-importer'),
+               'author_id' => __('Author ID', 'quizcourse-importer'),
+               'create_date' => __('Creation Date', 'quizcourse-importer'),
+               'ordering' => __('Ordering', 'quizcourse-importer'),
+               'course_reference' => __('Course Reference', 'quizcourse-importer'),
+               'options' => __('Options (JSON)', 'quizcourse-importer')
+           ),
+           'questions' => array(
+               'question' => __('Question Text', 'quizcourse-importer'),
+               'question_title' => __('Question Title', 'quizcourse-importer'),
+               'question_image' => __('Image URL', 'quizcourse-importer'),
+               'type' => __('Question Type', 'quizcourse-importer'),
+               'category_id' => __('Category ID', 'quizcourse-importer'),
+               'tag_id' => __('Tag ID', 'quizcourse-importer'),
+               'quiz_reference' => __('Quiz Reference', 'quizcourse-importer'),
+               'wrong_answer_text' => __('Wrong Answer Text', 'quizcourse-importer'),
+               'right_answer_text' => __('Right Answer Text', 'quizcourse-importer'),
+               'question_hint' => __('Hint', 'quizcourse-importer'),
+               'explanation' => __('Explanation', 'quizcourse-importer'),
+               'published' => __('Published', 'quizcourse-importer'),
+               'weight' => __('Weight', 'quizcourse-importer'),
+               'create_date' => __('Creation Date', 'quizcourse-importer'),
+               'options' => __('Options (JSON)', 'quizcourse-importer')
+           ),
+           'answers' => array(
+               'answer' => __('Answer Text', 'quizcourse-importer'),
+               'image' => __('Image URL', 'quizcourse-importer'),
+               'correct' => __('Is Correct', 'quizcourse-importer'),
+               'question_reference' => __('Question Reference', 'quizcourse-importer'),
+               'weight' => __('Weight', 'quizcourse-importer'),
+               'ordering' => __('Ordering', 'quizcourse-importer'),
+               'keyword' => __('Keyword', 'quizcourse-importer'),
+               'options' => __('Options (JSON)', 'quizcourse-importer')
+           )
+       );
+   }
 
-    /**
-     * Check if a file field matches a database field.
-     * 
-     * @param string $file_field File field name.
-     * @param string $db_field Database field name.
-     * @return bool Whether they match.
-     */
-    private function is_field_match($file_field, $db_field) {
-        // Normalize both fields
-        $file_field = strtolower(str_replace(array(' ', '_', '-'), '', $file_field));
-        $db_field = strtolower(str_replace(array(' ', '_', '-'), '', $db_field));
-        
-        // Direct match
-        if ($file_field === $db_field) {
-            return true;
-        }
-        
-        // Check for contained match
-        if (strpos($file_field, $db_field) !== false || strpos($db_field, $file_field) !== false) {
-            return true;
-        }
-        
-        // Check specific common patterns
-        $patterns = array(
-            'title' => array('name', 'heading'),
-            'description' => array('desc', 'content', 'summary'),
-            'question' => array('questiontext', 'questioncontent'),
-            'answer' => array('answertext', 'answercontent'),
-            'image' => array('img', 'picture', 'photo', 'thumbnail'),
-            'correct' => array('iscorrect', 'isright', 'right'),
-            'quiz_reference' => array('quizid', 'quiz'),
-            'question_reference' => array('questionid', 'question'),
-            'course_reference' => array('courseid', 'course')
-        );
-        
-        foreach ($patterns as $key => $alternatives) {
-            if ($db_field === $key) {
-                foreach ($alternatives as $alt) {
-                    if (strpos($file_field, $alt) !== false) {
-                        return true;
-                    }
-                }
-            }
-        }
-        
-        return false;
-    }
+   /**
+    * Create a mapping suggestion based on file analysis.
+    * 
+    * @param array $file_structure File structure information.
+    * @param bool $single_sheet Whether this is a single sheet file.
+    * @return array Suggested mapping.
+    */
+   public function suggest_mapping($file_structure, $single_sheet = true) {
+       $mapping = array();
+       $db_fields = $this->get_db_field_options();
+       
+       if ($single_sheet) {
+           // For single sheet, create mapping for all headers
+           if (isset($file_structure['headers']) && is_array($file_structure['headers'])) {
+               foreach ($file_structure['headers'] as $header) {
+                   $mapping[$header] = $this->suggest_field_mapping($header);
+               }
+           }
+       } else {
+           // For multi-sheet, create mapping per sheet
+           if (isset($file_structure['sheets']) && is_array($file_structure['sheets'])) {
+               foreach ($file_structure['sheets'] as $sheet_key => $sheet_info) {
+                   $sheet_type = $sheet_info['detected_type'];
+                   
+                   // Skip if the sheet type is not recognized
+                   if ($sheet_type === 'unknown' || !isset($db_fields[$sheet_type])) {
+                       continue;
+                   }
+                   
+                   $mapping[$sheet_type] = array();
+                   
+                   // Try to match file fields with database fields
+                   foreach ($sheet_info['fields'] as $file_field) {
+                       $mapping[$sheet_type][$file_field] = $this->suggest_field_mapping($file_field, $sheet_type);
+                   }
+               }
+           }
+       }
+       
+       return $mapping;
+   }
+
+   /**
+    * Suggest a field mapping for a given file field.
+    * 
+    * @param string $file_field The file field name.
+    * @param string $entity_type Optional entity type for context.
+    * @return string Suggested database field.
+    */
+   private function suggest_field_mapping($file_field, $entity_type = null) {
+       $file_field_lower = strtolower($file_field);
+       $db_fields = $this->get_db_field_options();
+       
+       // Skip record_type and similar fields
+       if (in_array($file_field_lower, array('record_type', 'type', 'entity_type'))) {
+           return 'record_type';
+       }
+       
+       // Skip ID fields that are only for reference
+       if ($file_field_lower === 'id' || $file_field_lower === 'record_id') {
+           return 'id';
+       }
+       
+       // If we know the entity type, check only those fields
+       if ($entity_type && isset($db_fields[$entity_type])) {
+           foreach ($db_fields[$entity_type] as $db_field => $label) {
+               if ($this->is_field_match($file_field, $db_field)) {
+                   return $db_field;
+               }
+           }
+       } else {
+           // Check all entity types
+           foreach ($db_fields as $type => $fields) {
+               foreach ($fields as $db_field => $label) {
+                   if ($this->is_field_match($file_field, $db_field)) {
+                       return $db_field;
+                   }
+               }
+           }
+       }
+       
+       // Special handling for common fields
+       if (in_array($file_field_lower, array('title', 'name', 'heading'))) {
+           return 'title';
+       } else if (in_array($file_field_lower, array('description', 'desc', 'content'))) {
+           return 'description';
+       } else if (in_array($file_field_lower, array('parent_id', 'parent', 'parent_reference'))) {
+           return 'parent_id';
+       }
+       
+       return '';
+   }
+
+   /**
+    * Check if a file field matches a database field.
+    * 
+    * @param string $file_field File field name.
+    * @param string $db_field Database field name.
+    * @return bool Whether they match.
+    */
+   private function is_field_match($file_field, $db_field) {
+       // Normalize both fields
+       $file_field = strtolower(str_replace(array(' ', '_', '-'), '', $file_field));
+       $db_field = strtolower(str_replace(array(' ', '_', '-'), '', $db_field));
+       
+       // Direct match
+       if ($file_field === $db_field) {
+           return true;
+       }
+       
+       // Check for contained match
+       if (strpos($file_field, $db_field) !== false || strpos($db_field, $file_field) !== false) {
+           return true;
+       }
+       
+       // Check specific common patterns
+       $patterns = array(
+           'title' => array('name', 'heading'),
+           'description' => array('desc', 'content', 'summary'),
+           'question' => array('questiontext', 'questioncontent'),
+           'answer' => array('answertext', 'answercontent'),
+           'image' => array('img', 'picture', 'photo', 'thumbnail'),
+           'correct' => array('iscorrect', 'isright', 'right'),
+           'quiz_reference' => array('quizid', 'quiz'),
+           'question_reference' => array('questionid', 'question'),
+           'course_reference' => array('courseid', 'course')
+       );
+       
+       foreach ($patterns as $key => $alternatives) {
+           if ($db_field === $key) {
+               foreach ($alternatives as $alt) {
+                   if (strpos($file_field, $alt) !== false) {
+                       return true;
+                   }
+               }
+           }
+       }
+       
+       return false;
+   }
+
+   /**
+    * Get courses data from a file.
+    * 
+    * @param string $file_path Path to the file.
+    * @param array $mapping Field mapping configuration.
+    * @return array Courses data.
+    */
+   public function get_courses_data($file_path, $mapping) {
+       $data = $this->process_file($file_path, $mapping);
+       if (is_wp_error($data)) {
+           return $data;
+       }
+       
+       return $data['courses'];
+   }
+   
+   /**
+    * Get quizzes data from a file.
+    * 
+    * @param string $file_path Path to the file.
+    * @param array $mapping Field mapping configuration.
+    * @return array Quizzes data.
+    */
+   public function get_quizzes_data($file_path, $mapping) {
+       $data = $this->process_file($file_path, $mapping);
+       if (is_wp_error($data)) {
+           return $data;
+       }
+       
+       return $data['quizzes'];
+   }
+   
+   /**
+    * Get questions data from a file.
+    * 
+    * @param string $file_path Path to the file.
+    * @param array $mapping Field mapping configuration.
+    * @return array Questions data.
+    */
+   public function get_questions_data($file_path, $mapping) {
+       $data = $this->process_file($file_path, $mapping);
+       if (is_wp_error($data)) {
+           return $data;
+       }
+       
+       return $data['questions'];
+   }
+   
+   /**
+    * Get answers data from a file.
+    * 
+    * @param string $file_path Path to the file.
+    * @param array $mapping Field mapping configuration.
+    * @return array Answers data.
+    */
+   public function get_answers_data($file_path, $mapping) {
+       $data = $this->process_file($file_path, $mapping);
+       if (is_wp_error($data)) {
+           return $data;
+       }
+       
+       return $data['answers'];
+   }
+   
+   /**
+    * Count items in a file.
+    * 
+    * @param string $file_path Path to the file.
+    * @param array $mapping Field mapping configuration.
+    * @return array Count of items by type.
+    */
+   public function count_items($file_path, $mapping) {
+       $data = $this->process_file($file_path, $mapping);
+       if (is_wp_error($data)) {
+           return $data;
+       }
+       
+       return array(
+           'courses' => count($data['courses']),
+           'quizzes' => count($data['quizzes']),
+           'questions' => count($data['questions']),
+           'answers' => count($data['answers'])
+       );
+   }
 }
