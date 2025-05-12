@@ -140,6 +140,8 @@ class QuizCourse_Admin {
             array($this, 'display_help_page')
         );
 
+            
+
         // Add import history page
         add_submenu_page(
             'quizcourse-importer',
@@ -149,6 +151,11 @@ class QuizCourse_Admin {
             'quizcourse-history',
             array($this, 'display_history_page')
         );
+            } catch (Exception $e) {
+        // บันทึกข้อผิดพลาด
+        error_log('QuizCourse Importer Error: ' . $e->getMessage());
+    }
+            
     }
 
     /**
