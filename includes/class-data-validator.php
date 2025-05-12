@@ -3,6 +3,7 @@
  * Data Validator class.
  * 
  * Handles validation of imported data files and their content.
+ * ปรับปรุงให้รองรับการใช้งานกับ Sheet เดียว
  */
 class QCI_Data_Validator {
 
@@ -14,40 +15,25 @@ class QCI_Data_Validator {
     private $supported_extensions = array('csv', 'xlsx', 'xls');
 
     /**
-     * Required sheets for Excel files
-     * 
-     * @var array
-     */
-    private $required_sheets = array('Courses', 'Sections', 'Quizzes', 'Questions', 'Answers');
-
-    /**
-     * Required columns for each sheet
+     * Required columns for single sheet format
+     * ฟิลด์ที่จำเป็นสำหรับการใช้งานแบบ Sheet เดียว
      * 
      * @var array
      */
     private $required_columns = array(
-        'Courses' => array(
-            'course_title',
-            'course_description'
-        ),
-        'Sections' => array(
-            'section_title',
-            'course_reference'
-        ),
-        'Quizzes' => array(
-            'quiz_title',
-            'section_reference'
-        ),
-        'Questions' => array(
-            'question_text',
-            'quiz_reference',
-            'question_type'
-        ),
-        'Answers' => array(
-            'answer_text',
-            'question_reference',
-            'is_correct'
-        )
+        'record_type',   // ประเภทข้อมูล (course, quiz, question, answer)
+        'record_id',     // ID สำหรับอ้างอิง
+        'title',         // หัวข้อ/ชื่อ (สำหรับทุกประเภท)
+        'parent_id'      // ID อ้างอิงถึงรายการแม่ (เช่น quiz อ้างถึง course)
+    );
+
+    /**
+     * Valid record types
+     * 
+     * @var array
+     */
+    private $valid_record_types = array(
+        'course', 'quiz', 'question', 'answer'
     );
 
     /**
@@ -62,6 +48,61 @@ class QCI_Data_Validator {
         'essay',
         'fill_in_blank',
         'matching'
+    );
+
+    /**
+     * Database field mapping for each record type
+     * การจับคู่ระหว่างฟิลด์ในไฟล์กับฟิลด์ในฐานข้อมูล
+     * 
+     * @var array
+     */
+    private $db_field_mapping = array(
+        'course' => array(
+            'id' => 'id',
+            'title' => 'title',
+            'description' => 'description',
+            'image' => 'image',
+            'category_ids' => 'category_ids',
+            'status' => 'status',
+            'ordering' => 'ordering',
+            'options' => 'options',
+        ),
+        'quiz' => array(
+            'id' => 'id',
+            'title' => 'title',
+            'description' => 'description',
+            'quiz_image' => 'quiz_image',
+            'quiz_category_id' => 'quiz_category_id',
+            'question_ids' => 'question_ids',
+            'published' => 'published',
+            'ordering' => 'ordering',
+            'options' => 'options',
+            'parent_id' => 'course_id',  // course ที่ quiz นี้สังกัดอยู่
+        ),
+        'question' => array(
+            'id' => 'id',
+            'question' => 'question',
+            'question_title' => 'question_title',
+            'question_image' => 'question_image',
+            'type' => 'type',
+            'category_id' => 'category_id',
+            'tag_id' => 'tag_id',
+            'explanation' => 'explanation',
+            'hint' => 'question_hint',
+            'weight' => 'weight',
+            'ordering' => 'ordering',
+            'published' => 'published',
+            'parent_id' => 'quiz_id',  // quiz ที่ question นี้สังกัดอยู่
+        ),
+        'answer' => array(
+            'id' => 'id',
+            'answer' => 'answer',
+            'image' => 'image',
+            'correct' => 'correct',
+            'weight' => 'weight',
+            'ordering' => 'ordering',
+            'parent_id' => 'question_id',  // question ที่ answer นี้สังกัดอยู่
+        )
     );
 
     /**
@@ -144,7 +185,7 @@ class QCI_Data_Validator {
     }
 
     /**
-     * Validate CSV file content
+     * Validate CSV file content - สำหรับการใช้งานกับ Sheet เดียว
      * 
      * @param string $file_path Path to the CSV file
      * @return array|WP_Error Validation results or error
@@ -169,7 +210,7 @@ class QCI_Data_Validator {
         }
 
         // Check for required columns
-        $missing_columns = $this->check_csv_required_columns($headers);
+        $missing_columns = $this->check_required_columns($headers);
         if (!empty($missing_columns)) {
             fclose($handle);
             return new WP_Error(
@@ -183,6 +224,9 @@ class QCI_Data_Validator {
         $row_count = 0;
         $max_preview_rows = 5;
 
+        // Get index of record_type column
+        $type_index = array_search('record_type', array_map('strtolower', $headers));
+        
         while (($row = fgetcsv($handle)) !== false && $row_count < $max_preview_rows) {
             // Skip empty rows
             if (count(array_filter($row)) === 0) {
@@ -200,6 +244,19 @@ class QCI_Data_Validator {
 
             $preview_data[] = $row_data;
             $row_count++;
+            
+            // Validate record_type if available
+            if ($type_index !== false && isset($row[$type_index])) {
+                $record_type = strtolower(trim($row[$type_index]));
+                if (!in_array($record_type, $this->valid_record_types)) {
+                    fclose($handle);
+                    return new WP_Error(
+                        'invalid_record_type', 
+                        sprintf(__('Invalid record_type "%s" at row %d. Valid types are: %s', 'quizcourse-importer'),
+                            $record_type, $row_count + 1, implode(', ', $this->valid_record_types))
+                    );
+                }
+            }
         }
 
         // Count remaining rows
@@ -219,7 +276,7 @@ class QCI_Data_Validator {
     }
 
     /**
-     * Validate Excel file content
+     * Validate Excel file content - สำหรับการใช้งานกับ Sheet เดียว
      * 
      * @param string $file_path Path to the Excel file
      * @return array|WP_Error Validation results or error
@@ -258,80 +315,69 @@ class QCI_Data_Validator {
 
             // Load the spreadsheet
             $spreadsheet = $reader->load($file_path);
-
-            // Check if the required sheets exist
-            $sheet_names = $spreadsheet->getSheetNames();
-            $missing_sheets = array_diff($this->required_sheets, $sheet_names);
             
-            if (!empty($missing_sheets)) {
+            // Get the active sheet (assume it's the first sheet for single sheet import)
+            $sheet = $spreadsheet->getActiveSheet();
+            
+            // Get data from the sheet
+            $sheet_data = $sheet->toArray();
+            
+            // Check if sheet has data
+            if (empty($sheet_data)) {
                 return new WP_Error(
-                    'missing_sheets',
-                    __('The Excel file is missing required sheets: ', 'quizcourse-importer') . implode(', ', $missing_sheets)
+                    'empty_sheet',
+                    __('The sheet is empty.', 'quizcourse-importer')
                 );
             }
-
-            // Validate each sheet
-            $validation_results = array();
             
-            foreach ($this->required_sheets as $sheet_name) {
-                $sheet = $spreadsheet->getSheetByName($sheet_name);
-                $sheet_data = $sheet->toArray();
-                
-                // Check if sheet has data
-                if (empty($sheet_data)) {
-                    return new WP_Error(
-                        'empty_sheet',
-                        sprintf(__('The %s sheet is empty.', 'quizcourse-importer'), $sheet_name)
-                    );
-                }
-                
-                // Get headers from first row
-                $headers = $sheet_data[0];
-                
-                // Check for required columns
-                $missing_columns = $this->check_excel_required_columns($sheet_name, $headers);
-                if (!empty($missing_columns)) {
-                    return new WP_Error(
-                        'missing_columns',
-                        sprintf(__('The %s sheet is missing required columns: ', 'quizcourse-importer'), $sheet_name) . implode(', ', $missing_columns)
-                    );
-                }
-                
-                // Preview data (up to 5 rows)
-                $preview_data = array();
-                $row_count = min(count($sheet_data) - 1, 5);
-                
-                for ($i = 1; $i <= $row_count; $i++) {
-                    $row_data = array();
-                    foreach ($headers as $index => $header) {
-                        if (isset($sheet_data[$i][$index])) {
-                            $row_data[$header] = $sheet_data[$i][$index];
-                        } else {
-                            $row_data[$header] = '';
-                        }
+            // Get headers from first row
+            $headers = $sheet_data[0];
+            
+            // Check for required columns
+            $missing_columns = $this->check_required_columns($headers);
+            if (!empty($missing_columns)) {
+                return new WP_Error(
+                    'missing_columns',
+                    __('The sheet is missing required columns: ', 'quizcourse-importer') . implode(', ', $missing_columns)
+                );
+            }
+            
+            // Preview data (up to 5 rows)
+            $preview_data = array();
+            $row_count = min(count($sheet_data) - 1, 5);
+            
+            // Get index of record_type column
+            $type_index = array_search('record_type', array_map('strtolower', $headers));
+            
+            for ($i = 1; $i <= $row_count; $i++) {
+                $row_data = array();
+                foreach ($headers as $index => $header) {
+                    if (isset($sheet_data[$i][$index])) {
+                        $row_data[$header] = $sheet_data[$i][$index];
+                    } else {
+                        $row_data[$header] = '';
                     }
-                    $preview_data[] = $row_data;
                 }
+                $preview_data[] = $row_data;
                 
-                $validation_results[$sheet_name] = array(
-                    'headers' => $headers,
-                    'preview' => $preview_data,
-                    'total_rows' => count($sheet_data) - 1
-                );
-            }
-            
-            // Validate relationships between sheets
-            $relationship_errors = $this->validate_sheet_relationships($validation_results);
-            if (!empty($relationship_errors)) {
-                return new WP_Error(
-                    'relationship_errors',
-                    __('The Excel file has relationship errors: ', 'quizcourse-importer') . implode(', ', $relationship_errors)
-                );
+                // Validate record_type if available
+                if ($type_index !== false && isset($sheet_data[$i][$type_index])) {
+                    $record_type = strtolower(trim($sheet_data[$i][$type_index]));
+                    if (!in_array($record_type, $this->valid_record_types)) {
+                        return new WP_Error(
+                            'invalid_record_type', 
+                            sprintf(__('Invalid record_type "%s" at row %d. Valid types are: %s', 'quizcourse-importer'),
+                                $record_type, $i + 1, implode(', ', $this->valid_record_types))
+                        );
+                    }
+                }
             }
             
             return array(
                 'type' => 'excel',
-                'sheets' => $validation_results
+                'headers' => $headers,
+                'preview' => $preview_data,
+                'total_rows' => count($sheet_data) - 1  // ลบแถวหัวข้อออก
             );
             
         } catch (\PhpOffice\PhpSpreadsheet\Exception $e) {
@@ -342,102 +388,89 @@ class QCI_Data_Validator {
     }
 
     /**
-     * Check for required columns in CSV file
+     * Check for required columns in the file
      * 
-     * @param array $headers CSV headers
+     * @param array $headers File headers
      * @return array Missing required columns
      */
-    private function check_csv_required_columns($headers) {
-        // For CSV, we need a simplified structure that has all required columns
-        $all_required = array();
+    private function check_required_columns($headers) {
+        // Convert headers to lowercase for case-insensitive comparison
+        $headers_lower = array_map('strtolower', $headers);
         
-        // Get all required columns from all sheets
-        foreach ($this->required_columns as $sheet => $columns) {
-            foreach ($columns as $column) {
-                $all_required[] = $column;
+        // Check which required columns are missing
+        $missing = array();
+        foreach ($this->required_columns as $required_column) {
+            if (!in_array(strtolower($required_column), $headers_lower)) {
+                $missing[] = $required_column;
             }
         }
         
-        // Also need reference columns to establish relationships
-        $reference_columns = array(
-            'course_reference',
-            'section_reference',
-            'quiz_reference', 
-            'question_reference'
-        );
-        
-        $all_required = array_merge($all_required, $reference_columns);
-        $all_required = array_unique($all_required);
-        
-        // Check which required columns are missing
-        return array_diff($all_required, $headers);
+        return $missing;
     }
 
     /**
-     * Check for required columns in Excel sheet
+     * Validate data relationships in the file
      * 
-     * @param string $sheet_name Sheet name
-     * @param array $headers Sheet headers
-     * @return array Missing required columns
+     * @param array $data Data from the file
+     * @return array|bool Relationship errors or true if valid
      */
-    private function check_excel_required_columns($sheet_name, $headers) {
-        if (!isset($this->required_columns[$sheet_name])) {
-            return array();
-        }
-        
-        // Check which required columns are missing
-        return array_diff($this->required_columns[$sheet_name], $headers);
-    }
-
-    /**
-     * Validate relationships between sheets
-     * 
-     * @param array $validation_results Validation results for each sheet
-     * @return array Relationship errors
-     */
-    private function validate_sheet_relationships($validation_results) {
+    private function validate_relationships($data) {
         $errors = array();
+        $record_types = array('course', 'quiz', 'question', 'answer');
         
-        // We need to check that references between sheets can be resolved
-        // For example, section_reference in Quizzes should refer to valid entries in Sections
-        
-        // This would require checking preview data, but for a complete validation
-        // we would need to check all data, not just preview
-        // For now, we'll just ensure the reference columns exist
-        
-        if (!$this->column_exists($validation_results, 'Sections', 'course_reference')) {
-            $errors[] = __('Sections sheet must have a course_reference column to link to Courses', 'quizcourse-importer');
+        // Create lookup arrays for each record type
+        $records_by_type = array();
+        foreach ($record_types as $type) {
+            $records_by_type[$type] = array();
         }
         
-        if (!$this->column_exists($validation_results, 'Quizzes', 'section_reference')) {
-            $errors[] = __('Quizzes sheet must have a section_reference column to link to Sections', 'quizcourse-importer');
+        // First pass: collect all record IDs by type
+        foreach ($data as $row_index => $row) {
+            $record_type = strtolower(trim($row['record_type']));
+            $record_id = trim($row['record_id']);
+            
+            if (in_array($record_type, $record_types) && $record_id) {
+                $records_by_type[$record_type][$record_id] = $row_index + 2;  // +2 for header row and 1-based index
+            }
         }
         
-        if (!$this->column_exists($validation_results, 'Questions', 'quiz_reference')) {
-            $errors[] = __('Questions sheet must have a quiz_reference column to link to Quizzes', 'quizcourse-importer');
+        // Second pass: validate parent-child relationships
+        foreach ($data as $row_index => $row) {
+            $record_type = strtolower(trim($row['record_type']));
+            $parent_id = isset($row['parent_id']) ? trim($row['parent_id']) : '';
+            
+            // Skip courses (top level) or rows without parent_id
+            if ($record_type === 'course' || empty($parent_id)) {
+                continue;
+            }
+            
+            // Determine parent type based on child type
+            $parent_type = '';
+            switch ($record_type) {
+                case 'quiz':
+                    $parent_type = 'course';
+                    break;
+                case 'question':
+                    $parent_type = 'quiz';
+                    break;
+                case 'answer':
+                    $parent_type = 'question';
+                    break;
+            }
+            
+            // Validate that parent exists
+            if ($parent_type && !isset($records_by_type[$parent_type][$parent_id])) {
+                $errors[] = sprintf(
+                    __('%s at row %d references %s with ID "%s" which was not found in the import data.', 'quizcourse-importer'),
+                    ucfirst($record_type),
+                    $row_index + 2,
+                    $parent_type,
+                    $parent_id
+                );
+            }
         }
         
-        if (!$this->column_exists($validation_results, 'Answers', 'question_reference')) {
-            $errors[] = __('Answers sheet must have a question_reference column to link to Questions', 'quizcourse-importer');
-        }
-        
-        return $errors;
-    }
-
-    /**
-     * Check if a column exists in a sheet
-     * 
-     * @param array $validation_results Validation results
-     * @param string $sheet_name Sheet name
-     * @param string $column_name Column name
-     * @return bool Whether the column exists
-     */
-    private function column_exists($validation_results, $sheet_name, $column_name) {
-        if (!isset($validation_results[$sheet_name]) || !isset($validation_results[$sheet_name]['headers'])) {
-            return false;
-        }
-        
-        return in_array($column_name, $validation_results[$sheet_name]['headers']);
+        return empty($errors) ? true : $errors;
     }
 
     /**
@@ -468,7 +501,7 @@ class QCI_Data_Validator {
     }
 
     /**
-     * Generate HTML for field mapping interface
+     * Generate HTML for field mapping interface - ปรับปรุงสำหรับการใช้งานกับ Sheet เดียว
      * 
      * @param array $validation_result Validation result
      * @param string $file_id Temporary file ID
@@ -485,99 +518,111 @@ class QCI_Data_Validator {
                 <input type="hidden" id="qci_file_id" name="qci_file_id" value="<?php echo esc_attr($file_id); ?>">
                 <?php wp_nonce_field('qci-security', 'qci_security'); ?>
                 
-                <?php if ($validation_result['type'] === 'csv'): ?>
-                    <!-- CSV Mapping -->
-                    <div class="qci-field-mapping-table">
-                        <table class="widefat">
-                            <thead>
+                <!-- Single Sheet Mapping Interface -->
+                <div class="qci-single-sheet-info">
+                    <p><strong><?php _e('File has a total of', 'quizcourse-importer'); ?> <?php echo $validation_result['total_rows']; ?> <?php _e('rows.', 'quizcourse-importer'); ?></strong></p>
+                    <p><?php _e('Remember that your file should contain these record types:', 'quizcourse-importer'); ?></p>
+                    <ul>
+                        <li><strong>course</strong> - <?php _e('Course information', 'quizcourse-importer'); ?></li>
+                        <li><strong>quiz</strong> - <?php _e('Quiz information (linked to courses)', 'quizcourse-importer'); ?></li>
+                        <li><strong>question</strong> - <?php _e('Questions (linked to quizzes)', 'quizcourse-importer'); ?></li>
+                        <li><strong>answer</strong> - <?php _e('Answers (linked to questions)', 'quizcourse-importer'); ?></li>
+                    </ul>
+                </div>
+                
+                <div class="qci-field-mapping-table">
+                    <table class="widefat">
+                        <thead>
+                            <tr>
+                                <th><?php _e('File Column', 'quizcourse-importer'); ?></th>
+                                <th><?php _e('System Field', 'quizcourse-importer'); ?></th>
+                                <th><?php _e('Sample Data', 'quizcourse-importer'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($validation_result['headers'] as $header_index => $header): ?>
                                 <tr>
-                                    <th><?php _e('CSV Field', 'quizcourse-importer'); ?></th>
-                                    <th><?php _e('System Field', 'quizcourse-importer'); ?></th>
+                                    <td><?php echo esc_html($header); ?></td>
+                                    <td>
+                                        <select class="qci-field-mapping" name="mapping[<?php echo esc_attr($header); ?>]" data-sheet="single_sheet" data-sheet-field="<?php echo esc_attr($header); ?>">
+                                            <option value=""><?php _e('-- Skip this field --', 'quizcourse-importer'); ?></option>
+                                            
+                                            <?php
+                                            // For record_type field, we have a special mapping
+                                            if (strtolower($header) === 'record_type'): ?>
+                                                <option value="record_type" selected><?php _e('Record Type (required)', 'quizcourse-importer'); ?></option>
+                                            <?php 
+                                            // For all other fields, show appropriate mappings based on context
+                                            else: 
+                                                // Get all field groups
+                                                echo $this->get_field_options_for_single_sheet($header);
+                                            endif;
+                                            ?>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <?php
+                                        // Show sample data from the preview
+                                        if (!empty($validation_result['preview'][0][$header])):
+                                            echo esc_html($validation_result['preview'][0][$header]);
+                                        else:
+                                            echo '<em>' . __('No data', 'quizcourse-importer') . '</em>';
+                                        endif;
+                                        ?>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($validation_result['headers'] as $header): ?>
-                                    <tr>
-                                        <td><?php echo esc_html($header); ?></td>
-                                        <td>
-                                            <select class="qci-field-mapping" name="mapping[<?php echo esc_attr($header); ?>]" data-sheet="csv" data-sheet-field="<?php echo esc_attr($header); ?>">
-                                                <option value=""><?php _e('-- Skip this field --', 'quizcourse-importer'); ?></option>
-                                                <?php echo $this->get_system_fields_options($header); ?>
-                                            </select>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php else: ?>
-                    <!-- Excel Mapping -->
-                    <div class="qci-tabs">
-                        <ul class="qci-tabs-nav">
-                            <?php foreach ($validation_result['sheets'] as $sheet_name => $sheet_data): ?>
-                                <li>
-                                    <a href="#qci-sheet-<?php echo sanitize_title($sheet_name); ?>"><?php echo esc_html($sheet_name); ?></a>
-                                </li>
                             <?php endforeach; ?>
-                        </ul>
-                        
-                        <?php foreach ($validation_result['sheets'] as $sheet_name => $sheet_data): ?>
-                            <div id="qci-sheet-<?php echo sanitize_title($sheet_name); ?>" class="qci-tab-content">
-                                <h3><?php echo esc_html($sheet_name); ?> <?php _e('Mapping', 'quizcourse-importer'); ?></h3>
-                                
-                                <div class="qci-field-mapping-table">
-                                    <table class="widefat">
-                                        <thead>
-                                            <tr>
-                                                <th><?php _e('Excel Field', 'quizcourse-importer'); ?></th>
-                                                <th><?php _e('System Field', 'quizcourse-importer'); ?></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($sheet_data['headers'] as $header): ?>
-                                                <tr>
-                                                    <td><?php echo esc_html($header); ?></td>
-                                                    <td>
-                                                        <select class="qci-field-mapping" name="mapping[<?php echo esc_attr($sheet_name); ?>][<?php echo esc_attr($header); ?>]" data-sheet="<?php echo esc_attr($sheet_name); ?>" data-sheet-field="<?php echo esc_attr($header); ?>">
-                                                            <option value=""><?php _e('-- Skip this field --', 'quizcourse-importer'); ?></option>
-                                                            <?php echo $this->get_system_fields_options($header, $sheet_name); ?>
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                
-                                <h4><?php _e('Preview Data', 'quizcourse-importer'); ?></h4>
-                                <div class="qci-preview-table">
-                                    <table class="widefat">
-                                        <thead>
-                                            <tr>
-                                                <?php foreach ($sheet_data['headers'] as $header): ?>
-                                                    <th><?php echo esc_html($header); ?></th>
-                                                <?php endforeach; ?>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($sheet_data['preview'] as $row): ?>
-                                                <tr>
-                                                    <?php foreach ($sheet_data['headers'] as $header): ?>
-                                                        <td><?php echo esc_html(isset($row[$header]) ? $row[$header] : ''); ?></td>
-                                                    <?php endforeach; ?>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <h3><?php _e('Preview Data', 'quizcourse-importer'); ?></h3>
+                <div class="qci-preview-table">
+                    <table class="widefat">
+                        <thead>
+                            <tr>
+                                <?php foreach ($validation_result['headers'] as $header): ?>
+                                    <th><?php echo esc_html($header); ?></th>
+                                <?php endforeach; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($validation_result['preview'] as $row): ?>
+                                <tr>
+                                    <?php foreach ($validation_result['headers'] as $header): ?>
+                                        <td><?php echo esc_html(isset($row[$header]) ? $row[$header] : ''); ?></td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="qci-mapping-help">
+                    <h3><?php _e('How to Map Your Fields', 'quizcourse-importer'); ?></h3>
+                    <p><?php _e('For each column in your file, select the corresponding field in our system:', 'quizcourse-importer'); ?></p>
+                    <ul>
+                        <li><?php _e('<strong>record_type</strong> must be mapped to "Record Type"', 'quizcourse-importer'); ?></li>
+                        <li><?php _e('<strong>record_id</strong> should be mapped to the ID field for each record type', 'quizcourse-importer'); ?></li>
+                        <li><?php _e('<strong>title</strong> should be mapped to the title/name field for each record type', 'quizcourse-importer'); ?></li>
+                        <li><?php _e('<strong>parent_id</strong> should be mapped to the reference field connecting to parent records', 'quizcourse-importer'); ?></li>
+                        <li><?php _e('For answer records, make sure to map the "correct" field to indicate correct answers', 'quizcourse-importer'); ?></li>
+                    </ul>
+                </div>
                 
                 <div class="qci-actions">
-                    <button type="button" id="qci-start-import" class="button button-primary"><?php _e('Start Import', 'quizcourse-importer'); ?></button>
-                    <button type="button" class="button qci-back-button"><?php _e('Back', 'quizcourse-importer'); ?></button>
+                    <button type="button" id="qci-auto-map" class="button button-secondary">
+                        <span class="dashicons dashicons-admin-generic"></span>
+                        <?php _e('Auto-Map Fields', 'quizcourse-importer'); ?>
+                    </button>
+                    <button type="button" class="button qci-back-button">
+                        <span class="dashicons dashicons-arrow-left-alt"></span>
+                        <?php _e('Back', 'quizcourse-importer'); ?>
+                    </button>
+                    <button type="button" id="qci-start-import" class="button button-primary">
+                        <span class="dashicons dashicons-database-import"></span>
+                        <?php _e('Start Import', 'quizcourse-importer'); ?>
+                    </button>
                 </div>
             </form>
         </div>
@@ -586,132 +631,151 @@ class QCI_Data_Validator {
     }
 
     /**
-     * Get system fields options for a form select element
+     * Get field options for single sheet mapping interface
      * 
-     * @param string $header Header name
-     * @param string $sheet_name Sheet name (for Excel files)
-     * @return string HTML options
+     * @param string $header The header from the file
+     * @return string HTML options for select element
      */
-    private function get_system_fields_options($header, $sheet_name = '') {
+    private function get_field_options_for_single_sheet($header) {
         $options = '';
-        $selected = '';
         
-        // Define system fields for each entity
-        $system_fields = array(
-            'Courses' => array(
-                'title' => __('Course Title', 'quizcourse-importer'),
-                'description' => __('Course Description', 'quizcourse-importer'),
-                'featured_image' => __('Featured Image URL', 'quizcourse-importer'),
-                'status' => __('Status (publish/draft)', 'quizcourse-importer'),
-                'author' => __('Author Username', 'quizcourse-importer'),
-                'date_created' => __('Creation Date', 'quizcourse-importer'),
-                'ordering' => __('Order', 'quizcourse-importer'),
-                'custom_field_' => __('Custom Field Prefix', 'quizcourse-importer')
-            ),
-            'Sections' => array(
-                'title' => __('Section Title', 'quizcourse-importer'),
-                'description' => __('Section Description', 'quizcourse-importer'),
-                'course_id' => __('Course ID', 'quizcourse-importer'),
-                'course_reference' => __('Course Reference', 'quizcourse-importer'),
-                'ordering' => __('Order', 'quizcourse-importer')
-            ),
-            'Quizzes' => array(
-                'title' => __('Quiz Title', 'quizcourse-importer'),
-                'description' => __('Quiz Description', 'quizcourse-importer'),
-                'section_id' => __('Section ID', 'quizcourse-importer'),
-                'section_reference' => __('Section Reference', 'quizcourse-importer'),
-                'category_id' => __('Category ID', 'quizcourse-importer'),
-                'featured_image' => __('Featured Image URL', 'quizcourse-importer'),
-                'status' => __('Status (publish/draft)', 'quizcourse-importer'),
-                'author' => __('Author Username', 'quizcourse-importer'),
-                'ordering' => __('Order', 'quizcourse-importer')
-            ),
-            'Questions' => array(
-                'title' => __('Question Title', 'quizcourse-importer'),
-                'text' => __('Question Text', 'quizcourse-importer'),
-                'quiz_id' => __('Quiz ID', 'quizcourse-importer'),
-                'quiz_reference' => __('Quiz Reference', 'quizcourse-importer'),
-                'type' => __('Question Type', 'quizcourse-importer'),
-                'category_id' => __('Category ID', 'quizcourse-importer'),
-                'tag_id' => __('Tag ID', 'quizcourse-importer'),
-                'image' => __('Image URL', 'quizcourse-importer'),
-                'hint' => __('Hint', 'quizcourse-importer'),
-                'explanation' => __('Explanation', 'quizcourse-importer'),
-                'ordering' => __('Order', 'quizcourse-importer'),
-                'weight' => __('Weight', 'quizcourse-importer')
-            ),
-            'Answers' => array(
-                'text' => __('Answer Text', 'quizcourse-importer'),
-                'question_id' => __('Question ID', 'quizcourse-importer'),
-                'question_reference' => __('Question Reference', 'quizcourse-importer'),
-                'is_correct' => __('Is Correct (1/0)', 'quizcourse-importer'),
-                'image' => __('Image URL', 'quizcourse-importer'),
-                'ordering' => __('Order', 'quizcourse-importer'),
-                'weight' => __('Weight', 'quizcourse-importer')
-            )
+        // Common fields that appear in most record types
+        $common_fields = array(
+            'record_id' => __('Record ID (required)', 'quizcourse-importer'),
+            'title' => __('Title/Name (required)', 'quizcourse-importer'),
+            'description' => __('Description', 'quizcourse-importer'),
+            'parent_id' => __('Parent Reference ID (required for quiz/question/answer)', 'quizcourse-importer'),
+            'status' => __('Status (publish, draft)', 'quizcourse-importer'),
+            'ordering' => __('Display Order', 'quizcourse-importer'),
+            'image_url' => __('Image URL', 'quizcourse-importer')
         );
         
-        // If it's a CSV, show all fields
-        if (empty($sheet_name)) {
-            foreach ($system_fields as $entity => $fields) {
-                $options .= '<optgroup label="' . esc_attr($entity) . '">';
-                foreach ($fields as $field_key => $field_label) {
-                    // Auto-select field if header matches common patterns
-                    $selected = $this->is_field_match($header, $field_key) ? ' selected="selected"' : '';
-                    $options .= '<option value="' . esc_attr($entity . '|' . $field_key) . '"' . $selected . '>' . esc_html($field_label) . '</option>';
-                }
-                $options .= '</optgroup>';
-            }
-        } 
-        // For Excel, show only relevant fields for the current sheet
-        else if (isset($system_fields[$sheet_name])) {
-            foreach ($system_fields[$sheet_name] as $field_key => $field_label) {
-                // Auto-select field if header matches common patterns
-                $selected = $this->is_field_match($header, $field_key) ? ' selected="selected"' : '';
-                $options .= '<option value="' . esc_attr($field_key) . '"' . $selected . '>' . esc_html($field_label) . '</option>';
-            }
+        // Add common fields
+        $options .= '<optgroup label="' . __('Common Fields', 'quizcourse-importer') . '">';
+        foreach ($common_fields as $field_key => $field_label) {
+            $selected = $this->is_field_match($header, $field_key) ? ' selected="selected"' : '';
+            $options .= '<option value="' . esc_attr($field_key) . '"' . $selected . '>' . esc_html($field_label) . '</option>';
         }
+        $options .= '</optgroup>';
         
-        return $options;
-    }
+        // Add course-specific fields
+        $options .= '<optgroup label="' . __('Course Fields', 'quizcourse-importer') . '">';
+        $course_fields = array(
+            'course_category_ids' => __('Course Category IDs', 'quizcourse-importer'),
+            'course_options' => __('Course Options (JSON)', 'quizcourse-importer')
+        );
+        foreach ($course_fields as $field_key => $field_label) {
+            $selected = $this->is_field_match($header, $field_key) ? ' selected="selected"' : '';
+            $options .= '<option value="' . esc_attr($field_key) . '"' . $selected . '>' . esc_html($field_label) . '</option>';
+        }
+        $options .= '</optgroup>';
+        
+        // Add quiz-specific fields
+        $options .= '<optgroup label="' . __('Quiz Fields', 'quizcourse-importer') . '">';
+        $quiz_fields = array(
+            'quiz_category_id' => __('Quiz Category ID', 'quizcourse-importer'),
+           'quiz_published' => __('Quiz Published (1/0)', 'quizcourse-importer'),
+           'quiz_options' => __('Quiz Options (JSON)', 'quizcourse-importer'),
+           'quiz_intervals' => __('Quiz Intervals', 'quizcourse-importer')
+       );
+       foreach ($quiz_fields as $field_key => $field_label) {
+           $selected = $this->is_field_match($header, $field_key) ? ' selected="selected"' : '';
+           $options .= '<option value="' . esc_attr($field_key) . '"' . $selected . '>' . esc_html($field_label) . '</option>';
+       }
+       $options .= '</optgroup>';
+       
+       // Add question-specific fields
+       $options .= '<optgroup label="' . __('Question Fields', 'quizcourse-importer') . '">';
+       $question_fields = array(
+           'question_type' => __('Question Type (multiple_choice, true_false, etc.)', 'quizcourse-importer'),
+           'question_hint' => __('Question Hint', 'quizcourse-importer'),
+           'explanation' => __('Explanation (for correct answer)', 'quizcourse-importer'),
+           'wrong_answer_text' => __('Wrong Answer Text', 'quizcourse-importer'),
+           'right_answer_text' => __('Right Answer Text', 'quizcourse-importer'),
+           'question_category_id' => __('Question Category ID', 'quizcourse-importer'),
+           'question_tag_id' => __('Question Tag ID', 'quizcourse-importer'),
+           'question_published' => __('Question Published (1/0)', 'quizcourse-importer'),
+           'question_weight' => __('Question Weight/Points', 'quizcourse-importer'),
+           'user_explanation' => __('User Explanation', 'quizcourse-importer'),
+           'question_options' => __('Question Options (JSON)', 'quizcourse-importer')
+       );
+       foreach ($question_fields as $field_key => $field_label) {
+           $selected = $this->is_field_match($header, $field_key) ? ' selected="selected"' : '';
+           $options .= '<option value="' . esc_attr($field_key) . '"' . $selected . '>' . esc_html($field_label) . '</option>';
+       }
+       $options .= '</optgroup>';
+       
+       // Add answer-specific fields
+       $options .= '<optgroup label="' . __('Answer Fields', 'quizcourse-importer') . '">';
+       $answer_fields = array(
+           'correct' => __('Is Correct Answer (1/0)', 'quizcourse-importer'),
+           'answer_weight' => __('Answer Weight/Points', 'quizcourse-importer'),
+           'keyword' => __('Answer Keyword', 'quizcourse-importer'),
+           'placeholder' => __('Answer Placeholder', 'quizcourse-importer'),
+           'slug' => __('Answer Slug', 'quizcourse-importer'),
+           'answer_options' => __('Answer Options (JSON)', 'quizcourse-importer')
+       );
+       foreach ($answer_fields as $field_key => $field_label) {
+           $selected = $this->is_field_match($header, $field_key) ? ' selected="selected"' : '';
+           $options .= '<option value="' . esc_attr($field_key) . '"' . $selected . '>' . esc_html($field_label) . '</option>';
+       }
+       $options .= '</optgroup>';
+       
+       return $options;
+   }
 
-    /**
-     * Check if a header matches a system field key
-     * 
-     * @param string $header Header name
-     * @param string $field_key System field key
-     * @return bool Whether the header matches the field
-     */
-    private function is_field_match($header, $field_key) {
-        // Normalize both strings: lowercase, no spaces, no underscores
-        $normalized_header = strtolower(str_replace(array(' ', '_', '-'), '', $header));
-        $normalized_key = strtolower(str_replace(array(' ', '_', '-'), '', $field_key));
-        
-        // Direct match
-        if ($normalized_header === $normalized_key) {
-            return true;
-        }
-        
-        // Check for partial matches based on common patterns
-        $matches = array(
-            'title' => array('name', 'title', 'heading'),
-            'description' => array('desc', 'description', 'content', 'text'),
-            'featured_image' => array('image', 'featuredimage', 'thumbnail', 'photo'),
-            'status' => array('status', 'state', 'published'),
-            'ordering' => array('order', 'ordering', 'position', 'sequence', 'sort'),
-           'course_reference' => array('courseid', 'coursereference', 'course', 'courseref'),
-           'section_reference' => array('sectionid', 'sectionreference', 'section', 'sectionref'),
-           'quiz_reference' => array('quizid', 'quizreference', 'quiz', 'quizref'),
-           'question_reference' => array('questionid', 'questionreference', 'question', 'questionref'),
-           'is_correct' => array('correct', 'iscorrect', 'rightanswer', 'right'),
-           'text' => array('text', 'content', 'body'),
-           'weight' => array('weight', 'score', 'points', 'value'),
-           'type' => array('type', 'questiontype', 'format')
+   /**
+    * Check if a header matches a field key for auto-mapping
+    * 
+    * @param string $header The header from the file
+    * @param string $field_key The system field key
+    * @return bool Whether the header matches the field
+    */
+   private function is_field_match($header, $field_key) {
+       // Normalize both strings for comparison
+       $normalized_header = strtolower(str_replace(array(' ', '_', '-'), '', $header));
+       $normalized_key = strtolower(str_replace(array(' ', '_', '-'), '', $field_key));
+       
+       // Direct match
+       if ($normalized_header === $normalized_key) {
+           return true;
+       }
+       
+       // Check for partial matches or common variations
+       $field_variations = array(
+           'record_id' => array('id', 'recordid', 'identifier', 'key'),
+           'title' => array('name', 'heading', 'subject'),
+           'description' => array('desc', 'content', 'text', 'body'),
+           'parent_id' => array('parentid', 'parent', 'parentrecord', 'reference', 'ref'),
+           'status' => array('state', 'published', 'visibility'),
+           'ordering' => array('order', 'sequence', 'position', 'sort'),
+           'image_url' => array('image', 'img', 'photo', 'picture', 'thumbnail'),
+           
+           // Course variations
+           'course_category_ids' => array('coursecategories', 'coursecat', 'coursecats'),
+           'course_options' => array('courseoptions', 'coursesettings'),
+           
+           // Quiz variations
+           'quiz_category_id' => array('quizcategory', 'quizcat'),
+           'quiz_published' => array('quizpublished', 'quizstatus', 'quizvisible'),
+           'quiz_options' => array('quizoptions', 'quizsettings'),
+           
+           // Question variations
+           'question_type' => array('questiontype', 'qtype', 'type'),
+           'question_hint' => array('hint', 'questionhint', 'clue'),
+           'explanation' => array('answer_explanation', 'solution', 'explanation'),
+           'question_category_id' => array('questioncat', 'qcat'),
+           'question_tag_id' => array('questiontag', 'qtag'),
+           'question_weight' => array('qweight', 'questionpoints', 'qpoints'),
+           
+           // Answer variations
+           'correct' => array('iscorrect', 'rightanswer', 'correct_answer'),
+           'answer_weight' => array('aweight', 'answerpoints', 'apoints')
        );
        
-       if (isset($matches[$field_key])) {
-           foreach ($matches[$field_key] as $match) {
-               if (strpos($normalized_header, $match) !== false) {
+       if (isset($field_variations[$field_key])) {
+           foreach ($field_variations[$field_key] as $variation) {
+               if (strpos($normalized_header, $variation) !== false) {
                    return true;
                }
            }
@@ -721,201 +785,381 @@ class QCI_Data_Validator {
    }
 
    /**
-    * Validate data before importing
-    *
-    * @param array $data The data to validate
-    * @return bool|WP_Error True if valid, WP_Error if invalid
+    * Validate single sheet data for importing
+    * 
+    * @param array $data Data from mapped file
+    * @return true|WP_Error True if valid, error otherwise
     */
-   public function validate_data($data) {
+   public function validate_single_sheet_data($data) {
        $errors = array();
        
-       // Validate courses
-       if (isset($data['Courses'])) {
-           foreach ($data['Courses'] as $index => $course) {
-               if (empty($course['title'])) {
-                   $errors[] = sprintf(__('Course at row %d is missing a title.', 'quizcourse-importer'), $index + 2);
-               }
-               
-               if (isset($course['status']) && !in_array($course['status'], array('publish', 'draft', 'pending'))) {
-                   $errors[] = sprintf(__('Course at row %d has an invalid status. Use "publish", "draft", or "pending".', 'quizcourse-importer'), $index + 2);
-               }
-           }
-       }
+       // Group data by record type
+       $grouped_data = array(
+           'course' => array(),
+           'quiz' => array(),
+           'question' => array(),
+           'answer' => array()
+       );
        
-       // Validate sections
-       if (isset($data['Sections'])) {
-           foreach ($data['Sections'] as $index => $section) {
-               if (empty($section['title'])) {
-                   $errors[] = sprintf(__('Section at row %d is missing a title.', 'quizcourse-importer'), $index + 2);
-               }
-               
-               if (empty($section['course_reference'])) {
-                   $errors[] = sprintf(__('Section at row %d is missing a course reference.', 'quizcourse-importer'), $index + 2);
-               }
+       foreach ($data as $row_index => $row) {
+           if (!isset($row['record_type'])) {
+               $errors[] = sprintf(__('Row %d is missing record_type.', 'quizcourse-importer'), $row_index + 2);
+               continue;
            }
-       }
-       
-       // Validate quizzes
-       if (isset($data['Quizzes'])) {
-           foreach ($data['Quizzes'] as $index => $quiz) {
-               if (empty($quiz['title'])) {
-                   $errors[] = sprintf(__('Quiz at row %d is missing a title.', 'quizcourse-importer'), $index + 2);
-               }
-               
-               if (empty($quiz['section_reference'])) {
-                   $errors[] = sprintf(__('Quiz at row %d is missing a section reference.', 'quizcourse-importer'), $index + 2);
-               }
-           }
-       }
-       
-       // Validate questions
-       if (isset($data['Questions'])) {
-           foreach ($data['Questions'] as $index => $question) {
-               if (empty($question['text'])) {
-                   $errors[] = sprintf(__('Question at row %d is missing text.', 'quizcourse-importer'), $index + 2);
-               }
-               
-               if (empty($question['quiz_reference'])) {
-                   $errors[] = sprintf(__('Question at row %d is missing a quiz reference.', 'quizcourse-importer'), $index + 2);
-               }
-               
-               if (isset($question['type']) && !in_array($question['type'], $this->valid_question_types)) {
-                   $errors[] = sprintf(
-                       __('Question at row %d has an invalid type. Valid types are: %s', 'quizcourse-importer'),
-                       $index + 2,
-                       implode(', ', $this->valid_question_types)
-                   );
-               }
-           }
-       }
-       
-       // Validate answers
-       if (isset($data['Answers'])) {
-           foreach ($data['Answers'] as $index => $answer) {
-               if (empty($answer['text'])) {
-                   $errors[] = sprintf(__('Answer at row %d is missing text.', 'quizcourse-importer'), $index + 2);
-               }
-               
-               if (empty($answer['question_reference'])) {
-                   $errors[] = sprintf(__('Answer at row %d is missing a question reference.', 'quizcourse-importer'), $index + 2);
-               }
-               
-               if (isset($answer['is_correct']) && !in_array($answer['is_correct'], array('0', '1', 0, 1, true, false))) {
-                   $errors[] = sprintf(
-                       __('Answer at row %d has an invalid is_correct value. Use 0 or 1.', 'quizcourse-importer'),
-                       $index + 2
-                   );
-               }
-           }
-       }
-       
-       // Check if questions have answers
-       if (isset($data['Questions']) && isset($data['Answers'])) {
-           $question_refs = array_column($data['Questions'], 'id');
-           $answer_question_refs = array_column($data['Answers'], 'question_reference');
            
-           $questions_without_answers = array_diff($question_refs, $answer_question_refs);
-           if (!empty($questions_without_answers)) {
-               $errors[] = __('Some questions do not have answers. Every question should have at least one answer.', 'quizcourse-importer');
+           $record_type = strtolower(trim($row['record_type']));
+           
+           // Check if record type is valid
+           if (!in_array($record_type, array_keys($grouped_data))) {
+               $errors[] = sprintf(
+                   __('Row %d has invalid record_type "%s". Valid types are: %s', 'quizcourse-importer'),
+                   $row_index + 2,
+                   $record_type,
+                   implode(', ', array_keys($grouped_data))
+               );
+               continue;
+           }
+           
+           // Add row to the appropriate group
+           $grouped_data[$record_type][] = array(
+               'row_index' => $row_index,
+               'data' => $row
+           );
+       }
+       
+       // Check required fields for each record type
+       foreach ($grouped_data as $record_type => $records) {
+           foreach ($records as $record) {
+               $row = $record['data'];
+               $row_index = $record['row_index'];
+               
+               // Check for record_id
+               if (empty($row['record_id'])) {
+                   $errors[] = sprintf(
+                       __('%s at row %d is missing record_id.', 'quizcourse-importer'),
+                       ucfirst($record_type),
+                       $row_index + 2
+                   );
+               }
+               
+               // Check for title/name
+               if (empty($row['title'])) {
+                   $errors[] = sprintf(
+                       __('%s at row %d is missing title.', 'quizcourse-importer'),
+                       ucfirst($record_type),
+                       $row_index + 2
+                   );
+               }
+               
+               // Check for parent_id (except for courses)
+               if ($record_type !== 'course' && empty($row['parent_id'])) {
+                   $errors[] = sprintf(
+                       __('%s at row %d is missing parent_id.', 'quizcourse-importer'),
+                       ucfirst($record_type),
+                       $row_index + 2
+                   );
+               }
+               
+               // Additional validations for specific record types
+               switch ($record_type) {
+                   case 'question':
+                       // Check for question type
+                       if (empty($row['question_type'])) {
+                           $errors[] = sprintf(
+                               __('Question at row %d is missing question_type.', 'quizcourse-importer'),
+                               $row_index + 2
+                           );
+                       } elseif (!in_array($row['question_type'], $this->valid_question_types)) {
+                           $errors[] = sprintf(
+                               __('Question at row %d has invalid question_type "%s". Valid types are: %s', 'quizcourse-importer'),
+                               $row_index + 2,
+                               $row['question_type'],
+                               implode(', ', $this->valid_question_types)
+                           );
+                       }
+                       break;
+                       
+                   case 'answer':
+                       // Check for 'correct' field
+                       if (!isset($row['correct'])) {
+                           $errors[] = sprintf(
+                               __('Answer at row %d is missing correct field.', 'quizcourse-importer'),
+                               $row_index + 2
+                           );
+                       } elseif (!in_array($row['correct'], array('0', '1', 0, 1))) {
+                           $errors[] = sprintf(
+                               __('Answer at row %d has invalid correct value "%s". Use 0 or 1.', 'quizcourse-importer'),
+                               $row_index + 2,
+                               $row['correct']
+                           );
+                       }
+                       break;
+               }
            }
        }
        
-       // Return validation result
-       if (!empty($errors)) {
-           return new WP_Error('validation_error', implode('<br>', $errors));
-       }
+       // Validate relationships
+       $relation_errors = $this->validate_data_relationships($grouped_data);
+       $errors = array_merge($errors, $relation_errors);
        
-       return true;
+       return empty($errors) ? true : new WP_Error('validation_error', implode('<br>', $errors));
    }
 
    /**
-    * Validate references between entities
-    *
-    * @param array $data The data to validate
-    * @return bool|WP_Error True if valid, WP_Error if invalid
+    * Validate relationships between parent and child records
+    * 
+    * @param array $grouped_data Data grouped by record type
+    * @return array Validation errors
     */
-   public function validate_references($data) {
+   private function validate_data_relationships($grouped_data) {
        $errors = array();
        
-       // Build reference maps
-       $course_refs = array();
-       $section_refs = array();
-       $quiz_refs = array();
-       $question_refs = array();
-       
-       if (isset($data['Courses'])) {
-           foreach ($data['Courses'] as $course) {
-               if (isset($course['id'])) {
-                   $course_refs[] = $course['id'];
+       // Create lookup tables for each record type
+       $record_ids = array();
+       foreach ($grouped_data as $record_type => $records) {
+           $record_ids[$record_type] = array();
+           foreach ($records as $record) {
+               if (!empty($record['data']['record_id'])) {
+                   $record_ids[$record_type][$record['data']['record_id']] = $record['row_index'] + 2;
                }
            }
        }
        
-       if (isset($data['Sections'])) {
-           foreach ($data['Sections'] as $index => $section) {
-               if (isset($section['id'])) {
-                   $section_refs[] = $section['id'];
+       // Define parent-child relationships
+       $relationships = array(
+           'quiz' => 'course',
+           'question' => 'quiz',
+           'answer' => 'question'
+       );
+       
+       // Check that each child has a valid parent
+       foreach ($relationships as $child_type => $parent_type) {
+           foreach ($grouped_data[$child_type] as $child) {
+               if (empty($child['data']['parent_id'])) {
+                   continue; // Already validated for required parent_id
                }
                
-               if (isset($section['course_reference']) && !in_array($section['course_reference'], $course_refs)) {
-                   $errors[] = sprintf(
-                       __('Section at row %d references a course that does not exist: %s', 'quizcourse-importer'),
-                       $index + 2,
-                       $section['course_reference']
-                   );
-               }
-           }
-       }
-       
-       if (isset($data['Quizzes'])) {
-           foreach ($data['Quizzes'] as $index => $quiz) {
-               if (isset($quiz['id'])) {
-                   $quiz_refs[] = $quiz['id'];
-               }
+               $parent_id = $child['data']['parent_id'];
                
-               if (isset($quiz['section_reference']) && !in_array($quiz['section_reference'], $section_refs)) {
+               // Check if parent exists
+               if (!isset($record_ids[$parent_type][$parent_id])) {
                    $errors[] = sprintf(
-                       __('Quiz at row %d references a section that does not exist: %s', 'quizcourse-importer'),
-                       $index + 2,
-                       $quiz['section_reference']
+                       __('%s at row %d references %s with ID "%s" which was not found in the import data.', 'quizcourse-importer'),
+                       ucfirst($child_type),
+                       $child['row_index'] + 2,
+                       $parent_type,
+                       $parent_id
                    );
                }
            }
        }
        
-       if (isset($data['Questions'])) {
-           foreach ($data['Questions'] as $index => $question) {
-               if (isset($question['id'])) {
-                   $question_refs[] = $question['id'];
+       // Ensure every question has at least one answer (if there are any questions)
+       if (!empty($grouped_data['question'])) {
+           $questions_with_answers = array();
+           
+           foreach ($grouped_data['answer'] as $answer) {
+               if (!empty($answer['data']['parent_id'])) {
+                   $questions_with_answers[$answer['data']['parent_id']] = true;
                }
+           }
+           
+           foreach ($grouped_data['question'] as $question) {
+               $question_id = $question['data']['record_id'];
+               if (!isset($questions_with_answers[$question_id])) {
+                   $errors[] = sprintf(
+                       __('Question with ID "%s" at row %d has no answers in the import data.', 'quizcourse-importer'),
+                       $question_id,
+                       $question['row_index'] + 2
+                   );
+               }
+           }
+       }
+       
+       return $errors;
+   }
+
+   /**
+    * Validate the mapping configuration
+    * 
+    * @param array $mapping The field mapping configuration
+    * @return true|WP_Error True if valid, error otherwise
+    */
+   public function validate_mapping($mapping) {
+       $errors = array();
+       
+       // Essential fields that must be mapped for a successful import
+       $required_mappings = array(
+           'record_type' => __('Record Type', 'quizcourse-importer'),
+           'record_id' => __('Record ID', 'quizcourse-importer'),
+           'title' => __('Title/Name', 'quizcourse-importer'),
+           'parent_id' => __('Parent Reference ID', 'quizcourse-importer')
+       );
+       
+       foreach ($required_mappings as $field => $label) {
+           $field_mapped = false;
+           
+           foreach ($mapping as $file_field => $system_field) {
+               if ($system_field === $field) {
+                   $field_mapped = true;
+                   break;
+               }
+           }
+           
+           if (!$field_mapped) {
+               $errors[] = sprintf(
+                   __('Required field "%s" is not mapped to any column.', 'quizcourse-importer'),
+                   $label
+               );
+           }
+       }
+       
+       // Question-specific required fields
+       $question_type_mapped = false;
+       foreach ($mapping as $file_field => $system_field) {
+           if ($system_field === 'question_type') {
+               $question_type_mapped = true;
+               break;
+           }
+       }
+       
+       if (!$question_type_mapped) {
+           $errors[] = __('Question Type field is not mapped. This is required for question records.', 'quizcourse-importer');
+       }
+       
+       // Answer-specific required fields
+       $answer_correct_mapped = false;
+       foreach ($mapping as $file_field => $system_field) {
+           if ($system_field === 'correct') {
+               $answer_correct_mapped = true;
+               break;
+           }
+       }
+       
+       if (!$answer_correct_mapped) {
+           $errors[] = __('Correct field is not mapped. This is required for answer records.', 'quizcourse-importer');
+       }
+       
+       return empty($errors) ? true : new WP_Error('mapping_error', implode('<br>', $errors));
+   }
+
+   /**
+    * Prepare the data for importing
+    * 
+    * @param array $data Raw data from the file
+    * @param array $mapping The field mapping configuration
+    * @return array Prepared data ready for importing
+    */
+   public function prepare_import_data($data, $mapping) {
+       $prepared_data = array(
+           'courses' => array(),
+           'quizzes' => array(),
+           'questions' => array(),
+           'answers' => array()
+       );
+       
+       // First pass: Group data by record type and prepare basic data
+       foreach ($data as $row) {
+           $record_type = strtolower($row[$this->get_mapped_field($mapping, 'record_type')]);
+           $record_id = $row[$this->get_mapped_field($mapping, 'record_id')];
+           
+           // Prepare record data with mapped fields
+           $record_data = array(
+               'original_id' => $record_id  // Save original ID for reference
+           );
+           
+           // Map fields according to the mapping configuration
+           foreach ($mapping as $file_field => $system_field) {
+               if (empty($system_field) || !isset($row[$file_field])) continue;
                
-               if (isset($question['quiz_reference']) && !in_array($question['quiz_reference'], $quiz_refs)) {
-                   $errors[] = sprintf(
-                       __('Question at row %d references a quiz that does not exist: %s', 'quizcourse-importer'),
-                       $index + 2,
-                       $question['quiz_reference']
-                   );
-               }
+               $record_data[$system_field] = $row[$file_field];
+           }
+           
+           // Add to appropriate array based on record type
+           switch ($record_type) {
+               case 'course':
+                   $prepared_data['courses'][$record_id] = $record_data;
+                   break;
+               case 'quiz':
+                   $prepared_data['quizzes'][$record_id] = $record_data;
+                   break;
+               case 'question':
+                   $prepared_data['questions'][$record_id] = $record_data;
+                   break;
+               case 'answer':
+                   $prepared_data['answers'][$record_id] = $record_data;
+                   break;
            }
        }
        
-       if (isset($data['Answers'])) {
-           foreach ($data['Answers'] as $index => $answer) {
-               if (isset($answer['question_reference']) && !in_array($answer['question_reference'], $question_refs)) {
-                   $errors[] = sprintf(
-                       __('Answer at row %d references a question that does not exist: %s', 'quizcourse-importer'),
-                       $index + 2,
-                       $answer['question_reference']
-                   );
+       // Second pass: Setup relationships between records
+       $this->setup_import_relationships($prepared_data);
+       
+       return $prepared_data;
+   }
+   
+   /**
+    * Setup relationships between records for importing
+    * 
+    * @param array &$prepared_data Reference to prepared data
+    */
+   private function setup_import_relationships(&$prepared_data) {
+       // Link quizzes to courses
+       foreach ($prepared_data['quizzes'] as $quiz_id => &$quiz) {
+           if (isset($quiz['parent_id']) && isset($prepared_data['courses'][$quiz['parent_id']])) {
+               $quiz['course_id'] = $quiz['parent_id']; // Store course ID
+               
+               // Add quiz ID to course's quiz list
+               $course_id = $quiz['parent_id'];
+               if (!isset($prepared_data['courses'][$course_id]['quizzes'])) {
+                   $prepared_data['courses'][$course_id]['quizzes'] = array();
                }
+               $prepared_data['courses'][$course_id]['quizzes'][] = $quiz_id;
            }
        }
        
-       // Return validation result
-       if (!empty($errors)) {
-           return new WP_Error('reference_error', implode('<br>', $errors));
+       // Link questions to quizzes
+       foreach ($prepared_data['questions'] as $question_id => &$question) {
+           if (isset($question['parent_id']) && isset($prepared_data['quizzes'][$question['parent_id']])) {
+               $question['quiz_id'] = $question['parent_id']; // Store quiz ID
+               
+               // Add question ID to quiz's question list
+               $quiz_id = $question['parent_id'];
+               if (!isset($prepared_data['quizzes'][$quiz_id]['questions'])) {
+                   $prepared_data['quizzes'][$quiz_id]['questions'] = array();
+               }
+               $prepared_data['quizzes'][$quiz_id]['questions'][] = $question_id;
+           }
        }
        
-       return true;
+       // Link answers to questions
+       foreach ($prepared_data['answers'] as $answer_id => &$answer) {
+           if (isset($answer['parent_id']) && isset($prepared_data['questions'][$answer['parent_id']])) {
+               $answer['question_id'] = $answer['parent_id']; // Store question ID
+               
+               // Add answer ID to question's answer list
+               $question_id = $answer['parent_id'];
+               if (!isset($prepared_data['questions'][$question_id]['answers'])) {
+                   $prepared_data['questions'][$question_id]['answers'] = array();
+               }
+               $prepared_data['questions'][$question_id]['answers'][] = $answer_id;
+           }
+       }
+   }
+   
+   /**
+    * Get the file field that is mapped to a specific system field
+    * 
+    * @param array $mapping The field mapping configuration
+    * @param string $system_field The system field to look for
+    * @return string|null The mapped file field or null if not found
+    */
+   private function get_mapped_field($mapping, $system_field) {
+       foreach ($mapping as $file_field => $mapped_field) {
+           if ($mapped_field === $system_field) {
+               return $file_field;
+           }
+       }
+       return null;
    }
 }
