@@ -99,15 +99,18 @@ class QuizCourse_Admin {
      */
     public function add_admin_menu() {
         // Main menu
+        try {
         add_menu_page(
-            __('QuizCourse Importer', 'quizcourse-importer'),
-            __('QC Importer', 'quizcourse-importer'),
-            'manage_options',
-            'quizcourse-importer',
-            array($this, 'display_importer_page'),
-            'dashicons-upload',
-            30
+            'QuizCourse Importer',  // page_title
+            'QC Importer',         // menu_title
+            'manage_options',       // capability
+            'quizcourse-importer',  // menu_slug
+            array($this, 'display_importer_page'),  // callback function
+            'dashicons-upload',     // icon
+            30                     // position
         );
+
+        
 
         // Submenu pages
         add_submenu_page(
